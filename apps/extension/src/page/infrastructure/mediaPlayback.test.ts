@@ -300,6 +300,12 @@ describe("mediaPlayback", () => {
     expect(rawCurrentTimeSetter).toHaveBeenCalledWith(50);
   });
 
+  it("keeps IYF on the generic HTML video adapter", () => {
+    const video = document.createElement("video");
+
+    expect(createPlaybackAdapter(video, "www.iyf.tv").kind).toBe("html-video");
+  });
+
   it("recognizes Bilibili-owned hosts", () => {
     expect(isBilibiliOwnedHost("www.bilibili.com")).toBe(true);
     expect(isBilibiliOwnedHost("player.bilibili.com")).toBe(true);
