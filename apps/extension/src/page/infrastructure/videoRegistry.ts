@@ -1,6 +1,6 @@
 import { videoExpiredSeconds } from "../app/config";
 
-export interface VideoModel {
+interface VideoModel {
   activatedTime: number;
   duration: number;
   id: string;

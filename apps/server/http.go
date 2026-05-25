@@ -135,7 +135,7 @@ func (h *slashFix) handleRoomJoin(w http.ResponseWriter, req *http.Request) {
 	if !h.decodeJSON(w, req, &body) {
 		return
 	}
-	result, err := h.vtSrv.JoinRoom(NewVtContext(req.URL.Query().Get("language"), req.RemoteAddr), JoinRoomInput{
+	result, err := h.vtSrv.JoinRoom(NewVtContext(req.URL.Query().Get("language")), JoinRoomInput{
 		Password: body.Password,
 		RoomName: body.Name,
 		UserID:   body.UserID,
@@ -148,7 +148,7 @@ func (h *slashFix) handleRoomGet(w http.ResponseWriter, req *http.Request) {
 	if !h.decodeJSON(w, req, &body) {
 		return
 	}
-	result, err := h.vtSrv.GetRoom(NewVtContext(req.URL.Query().Get("language"), req.RemoteAddr), GetRoomInput{
+	result, err := h.vtSrv.GetRoom(NewVtContext(req.URL.Query().Get("language")), GetRoomInput{
 		RoomName:     body.Name,
 		SessionToken: body.SessionToken,
 	})
@@ -164,7 +164,7 @@ func (h *slashFix) handleHostUpdate(w http.ResponseWriter, req *http.Request) {
 		h.respondError(w, err)
 		return
 	}
-	result, err := h.vtSrv.HostUpdateRoom(NewVtContext(req.URL.Query().Get("language"), req.RemoteAddr), HostUpdateInput{
+	result, err := h.vtSrv.HostUpdateRoom(NewVtContext(req.URL.Query().Get("language")), HostUpdateInput{
 		CurrentTime:          body.CurrentTime,
 		Duration:             body.Duration,
 		LastUpdateClientTime: body.LastUpdateClientTime,
@@ -173,7 +173,6 @@ func (h *slashFix) handleHostUpdate(w http.ResponseWriter, req *http.Request) {
 		PlaybackRate:         body.PlaybackRate,
 		Protected:            body.Protected,
 		RoomName:             body.Name,
-		SendLocalTimestamp:   body.SendLocalTimestamp,
 		SessionToken:         body.SessionToken,
 		URL:                  body.URL,
 		UserID:               body.UserID,
@@ -187,13 +186,12 @@ func (h *slashFix) handleMemberUpdate(w http.ResponseWriter, req *http.Request) 
 	if !h.decodeJSON(w, req, &body) {
 		return
 	}
-	result, _, err := h.vtSrv.UpdateMember(NewVtContext(req.URL.Query().Get("language"), req.RemoteAddr), MemberUpdateInput{
-		CurrentURL:         body.CurrentURL,
-		IsLoading:          body.IsLoading,
-		RoomName:           body.RoomName,
-		SendLocalTimestamp: body.SendLocalTimestamp,
-		SessionToken:       body.SessionToken,
-		UserID:             body.UserID,
+	result, _, err := h.vtSrv.UpdateMember(NewVtContext(req.URL.Query().Get("language")), MemberUpdateInput{
+		CurrentURL:   body.CurrentURL,
+		IsLoading:    body.IsLoading,
+		RoomName:     body.RoomName,
+		SessionToken: body.SessionToken,
+		UserID:       body.UserID,
 	})
 	h.respondResult(w, result, err)
 }

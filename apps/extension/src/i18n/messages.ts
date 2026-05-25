@@ -6,7 +6,7 @@ import zhCn from "../locales/zh-cn.json";
 export type LocaleKey = keyof typeof enUs;
 export type LocaleMessages = Record<LocaleKey, string>;
 
-export const messages: Record<Language, LocaleMessages> = {
+const messages: Record<Language, LocaleMessages> = {
   "en-us": enUs,
   "zh-cn": zhCn
 };

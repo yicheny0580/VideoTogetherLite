@@ -22,7 +22,7 @@ func (h *slashFix) newWsHandler(hub *Hub) http.HandlerFunc {
 			hub:       hub,
 			conn:      conn,
 			send:      make(chan []byte, 256),
-			vtContext: NewVtContext(language, r.RemoteAddr),
+			vtContext: NewVtContext(language),
 		}
 		go client.writePump()
 		go client.readPump()
@@ -246,12 +246,11 @@ func (c *Client) updateMember(rawReq *WsRequestMessage) {
 	}
 
 	result, needNotification, err := c.hub.vtSrv.UpdateMember(c.vtContext, MemberUpdateInput{
-		CurrentURL:         req.CurrentURL,
-		IsLoading:          req.IsLoading,
-		RoomName:           req.RoomName,
-		SendLocalTimestamp: req.SendLocalTimestamp,
-		SessionToken:       req.SessionToken,
-		UserID:             req.UserID,
+		CurrentURL:   req.CurrentURL,
+		IsLoading:    req.IsLoading,
+		RoomName:     req.RoomName,
+		SessionToken: req.SessionToken,
+		UserID:       req.UserID,
 	})
 	if err != nil {
 		c.replyError(rawReq.ID, err)
@@ -286,7 +285,6 @@ func (c *Client) updateRoom(rawReq *WsRequestMessage) {
 		PlaybackRate:         req.PlaybackRate,
 		Protected:            req.Protected,
 		RoomName:             req.Name,
-		SendLocalTimestamp:   req.SendLocalTimestamp,
 		SessionToken:         req.SessionToken,
 		URL:                  req.URL,
 		UserID:               req.UserID,

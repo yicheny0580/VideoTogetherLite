@@ -101,7 +101,6 @@ type HostUpdateInput struct {
 	PlaybackRate         float64
 	Protected            bool
 	RoomName             string
-	SendLocalTimestamp   float64
 	SessionToken         string
 	URL                  string
 	UserID               string
@@ -109,12 +108,11 @@ type HostUpdateInput struct {
 }
 
 type MemberUpdateInput struct {
-	CurrentURL         string
-	IsLoading          bool
-	RoomName           string
-	SendLocalTimestamp float64
-	SessionToken       string
-	UserID             string
+	CurrentURL   string
+	IsLoading    bool
+	RoomName     string
+	SessionToken string
+	UserID       string
 }
 
 type RoomSessionResult struct {
