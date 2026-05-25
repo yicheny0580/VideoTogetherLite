@@ -3,6 +3,10 @@
   "private": true,
   "packageManager": "pnpm@11.3.0",
   "type": "module",
+  "engines": {
+    "node": ">=24",
+    "pnpm": ">=11.3 <12"
+  },
   "scripts": {
     "build": "pnpm -r --if-present build",
     "build:extension": "pnpm --filter @videotogether/extension build",

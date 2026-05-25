@@ -11,20 +11,35 @@
 Build the extension and load the unpacked Chrome MV3 output from `apps/extension/dist`.
 
 ```bash
-npx pnpm@latest install
-npx pnpm@latest build:extension
+just setup
+just build-extension
 ```
 
 ## Development
 
-This repository is a pnpm monorepo.
+This repository is a pnpm monorepo with a Go debug server.
+
+Prerequisites:
+
+- Node.js 24 or newer
+- pnpm 11.3 or newer
+- Go 1.26.3
+- `just`
+
+For the full local loop, install dependencies and Playwright Chromium, then start the Go server, Vite extension watcher, and a Chromium profile with the unpacked extension loaded:
 
 ```bash
-npx pnpm@latest lint
-npx pnpm@latest typecheck
-npx pnpm@latest test
-npx pnpm@latest build
-go test ./apps/server/...
+just setup
+just setup-browser
+just dev
+```
+
+`just dev` serves the extension against `http://127.0.0.1:5001`, opens the extension popup, and opens a local fixture page with a video element. Use `just watch` to run only the server and extension watcher, or `just browser` to open an existing build from `apps/extension/dist`.
+
+Run the local verification suite with:
+
+```bash
+just check
 ```
 
 ### Extension
@@ -39,7 +54,7 @@ The Chrome extension app lives in `apps/extension` and is built with Vite, TypeS
 For local server testing:
 
 ```bash
-VITE_VT_HOST=http://127.0.0.1:5001 npx pnpm@latest --filter @videotogether/extension dev
+just dev
 ```
 
 ### Service

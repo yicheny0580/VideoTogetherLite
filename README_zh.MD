@@ -17,8 +17,8 @@ QQ群: 170200260
 运行以下命令后，在 Chrome 扩展页面加载 `apps/extension/dist`。
 
 ```bash
-npx pnpm@latest install
-npx pnpm@latest build:extension
+just setup
+just build-extension
 ```
 
 

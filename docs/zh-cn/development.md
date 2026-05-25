@@ -4,16 +4,23 @@
 
 本仓库现在是 pnpm monorepo。Chrome 插件代码在 `apps/extension`，后端服务在 `apps/server`。
 
+### 前置依赖
+
+- Node.js 24 或更新版本
+- pnpm 11.3 或更新版本
+- Go 1.26.3
+- `just`
+
 ### 1. 安装依赖
 
 ```bash
-npx pnpm@latest install
+just setup
 ```
 
 ### 2. 编译插件
 
 ```bash
-npx pnpm@latest build:extension
+just build-extension
 ```
 
 编译产物会输出到 `apps/extension/dist`。
@@ -24,24 +31,35 @@ npx pnpm@latest build:extension
 
 ### 4. 开发模式
 
-如果要连接本地后端服务：
+运行完整本地开发循环：
 
 ```bash
-VITE_VT_HOST=http://127.0.0.1:5001 npx pnpm@latest --filter @videotogether/extension dev
+just setup-browser
+just dev
+```
+
+`just dev` 会启动 `127.0.0.1:5001` 上的 Go 调试服务，运行插件 watch 构建，并打开已加载 `apps/extension/dist` 的 Chromium。它还会打开插件 popup 和一个包含 video 元素的本地调试页面。
+
+如果只需要服务和插件 watch 构建，不打开浏览器：
+
+```bash
+just watch
+```
+
+如果已经有 `apps/extension/dist`，只想打开浏览器：
+
+```bash
+just browser
 ```
 
 ### 5. 检查
 
 ```bash
-npx pnpm@latest lint
-npx pnpm@latest typecheck
-npx pnpm@latest test
-go test ./apps/server/...
+just check
 ```
 
 ## 本地调试后端服务
 
 ```bash
-cd apps/server
-go run . debug
+just server
 ```
