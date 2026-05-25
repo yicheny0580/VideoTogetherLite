@@ -11,7 +11,7 @@ export interface FixtureVideoState {
 interface FixtureVideoController {
   emitActivity: () => void;
   getVideo: () => FixtureVideoState;
-  setVideo: (next: Partial<FixtureVideoState>) => FixtureVideoState;
+  setVideo: (next: Partial<FixtureVideoState>) => Promise<FixtureVideoState>;
 }
 
 declare global {
@@ -110,11 +110,11 @@ export async function setFixtureVideo(
   page: Page,
   state: Partial<FixtureVideoState>
 ): Promise<void> {
-  await page.evaluate((next) => {
+  await page.evaluate(async (next) => {
     const fixture = window.__videoTogetherLiteFixture;
     if (!fixture) {
       throw new Error("Fixture video controller is unavailable.");
     }
-    fixture.setVideo(next);
+    await fixture.setVideo(next);
   }, state);
 }

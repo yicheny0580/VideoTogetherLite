@@ -6,6 +6,7 @@ import {
   expectVideoState,
   fillInvite,
   fillNickname,
+  getFixtureVideo,
   inviteCodeText,
   joinButton,
   participantCount,
@@ -68,8 +69,24 @@ test("creates a participant room and follows an explicitly focused video", async
 
   await setFixtureVideo(alice, { currentTime: 44, paused: false, playbackRate: 1.5 });
   await expectVideoState(bob, {
+    currentTime: 44,
     paused: false,
     playbackRate: 1.5
+  }, 3);
+  await expect.poll(async () => (await getFixtureVideo(bob)).currentTime).toBeGreaterThan(44);
+
+  await setFixtureVideo(alice, { currentTime: 50, paused: false, playbackRate: 1.25 });
+  await expectVideoState(bob, {
+    currentTime: 50,
+    paused: false,
+    playbackRate: 1.25
+  }, 3);
+
+  await setFixtureVideo(alice, { currentTime: 52, paused: true, playbackRate: 1.25 });
+  await expectVideoState(bob, {
+    currentTime: 52,
+    paused: true,
+    playbackRate: 1.25
   });
 
   await bob.reload();

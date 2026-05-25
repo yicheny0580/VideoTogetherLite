@@ -33,7 +33,7 @@ export function buildFocusedVideoState(
     isLoading: !isVideoLoaded(video),
     lastUpdateClientTime: getLocalTimestamp(timeSync),
     lastUpdateServerTime: 0,
-    paused: isVideoLoaded(video) ? video.paused : true,
+    paused: video.paused,
     playbackRate: Number.isFinite(video.playbackRate) ? video.playbackRate : 1,
     title: videoRegistry.getFocusedVideoSummary()?.title || document.title || "Untitled video",
     url: linkWithoutState(window.location)

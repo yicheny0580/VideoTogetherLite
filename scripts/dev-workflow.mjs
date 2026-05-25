@@ -173,6 +173,46 @@ function fixtureHtml() {
 </html>`;
 }
 
+function serveFixtureVideo(request, response) {
+  const range = request.headers.range;
+  if (!range) {
+    response.writeHead(200, {
+      "accept-ranges": "bytes",
+      "cache-control": "no-store",
+      "content-length": String(fixtureVideo.length),
+      "content-type": "video/webm"
+    });
+    response.end(fixtureVideo);
+    return;
+  }
+
+  const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+  if (!match) {
+    response.writeHead(416, { "content-range": `bytes */${fixtureVideo.length}` });
+    response.end();
+    return;
+  }
+
+  const start = match[1] === "" ? 0 : Number.parseInt(match[1], 10);
+  const requestedEnd = match[2] === "" ? fixtureVideo.length - 1 : Number.parseInt(match[2], 10);
+  const end = Math.min(requestedEnd, fixtureVideo.length - 1);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start > end || start >= fixtureVideo.length) {
+    response.writeHead(416, { "content-range": `bytes */${fixtureVideo.length}` });
+    response.end();
+    return;
+  }
+
+  const chunk = fixtureVideo.subarray(start, end + 1);
+  response.writeHead(206, {
+    "accept-ranges": "bytes",
+    "cache-control": "no-store",
+    "content-length": String(chunk.length),
+    "content-range": `bytes ${start}-${end}/${fixtureVideo.length}`,
+    "content-type": "video/webm"
+  });
+  response.end(chunk);
+}
+
 async function startFixtureServer() {
   const server = createServer((request, response) => {
     const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
@@ -182,12 +222,7 @@ async function startFixtureServer() {
       return;
     }
     if (pathname === fixtureVideoPathname) {
-      response.writeHead(200, {
-        "cache-control": "no-store",
-        "content-length": String(fixtureVideo.length),
-        "content-type": "video/webm"
-      });
-      response.end(fixtureVideo);
+      serveFixtureVideo(request, response);
       return;
     }
 

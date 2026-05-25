@@ -248,7 +248,7 @@ export class VideoRegistry {
 
     video.VideoTogetherLiteListenerAdded = true;
     const listener = () => this.onVideoActivity();
-    for (const eventName of ["durationchange", "loadedmetadata", "pause", "play", "seeked"]) {
+    for (const eventName of ["canplay", "durationchange", "loadedmetadata", "pause", "play", "playing", "ratechange", "seeked"]) {
       video.addEventListener(eventName, listener, false);
     }
   }
