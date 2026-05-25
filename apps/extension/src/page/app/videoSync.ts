@@ -1,62 +1,67 @@
 import { calculateRealCurrent, type SharedVideoState } from "@videotogetherlite/shared";
 
-function finiteNumber(value: unknown): number | null {
-  const numberValue = Number.parseFloat(String(value));
-  return Number.isFinite(numberValue) ? numberValue : null;
+import { createPlaybackAdapter, type PlaybackAdapter } from "../infrastructure/mediaPlayback";
+
+const pendingSeekTargetToleranceSeconds = 8;
+
+interface PendingSeekRecord {
+  targetTime: number;
 }
 
-function clampSeekTime(video: HTMLVideoElement, targetTime: number): number {
-  const duration = finiteNumber(video.duration);
-  if (duration !== null && duration > 0) {
-    return Math.min(Math.max(targetTime, 0), duration);
+const pendingSeekRecords = new WeakMap<HTMLVideoElement, PendingSeekRecord>();
+
+function shouldSkipSeek(
+  video: HTMLVideoElement,
+  snapshot: ReturnType<PlaybackAdapter["snapshot"]>,
+  targetTime: number
+): boolean {
+  const record = pendingSeekRecords.get(video);
+  if (record === undefined) {
+    return false;
   }
-  return Math.max(targetTime, 0);
+
+  if (!snapshot.isLoading) {
+    pendingSeekRecords.delete(video);
+    return false;
+  }
+
+  const sameTarget = Math.abs(record.targetTime - targetTime) <= pendingSeekTargetToleranceSeconds;
+  if (!sameTarget) {
+    pendingSeekRecords.delete(video);
+  }
+  return sameTarget;
 }
 
-function seekVideo(video: HTMLVideoElement, targetTime: number): void {
-  const safeTarget = clampSeekTime(video, targetTime);
-  try {
-    video.currentTime = safeTarget;
-  } catch {
-    // Some host players reject seeks before metadata is ready.
-  }
-}
-
-function syncPlaybackRate(video: HTMLVideoElement, sharedVideo: SharedVideoState): void {
-  const playbackRate = finiteNumber(sharedVideo.playbackRate);
-  if (playbackRate === null || video.playbackRate === playbackRate) {
-    return;
-  }
-  try {
-    video.playbackRate = playbackRate;
-  } catch {
-    // Some hosts block playbackRate updates.
-  }
+function rememberSeek(
+  video: HTMLVideoElement,
+  targetTime: number
+): void {
+  pendingSeekRecords.set(video, { targetTime });
 }
 
 async function syncPausedState(
-  video: HTMLVideoElement,
+  adapter: PlaybackAdapter,
   paused: boolean,
   manualPlayMessage: string
 ): Promise<void> {
-  if (video.paused === paused) {
+  const snapshot = adapter.snapshot();
+  if (snapshot.hasPlaybackError || snapshot.isLoading) {
+    return;
+  }
+  if (snapshot.paused === paused) {
     return;
   }
   if (paused) {
-    try {
-      video.pause();
-    } catch {
-      // Ignore host-specific pause failures; future updates can retry.
-    }
+    adapter.pause();
     return;
   }
 
   try {
-    await video.play();
+    await adapter.play();
   } catch {
     throw new Error(manualPlayMessage);
   }
-  if (video.paused) {
+  if (adapter.snapshot().paused) {
     throw new Error(manualPlayMessage);
   }
 }
@@ -65,16 +70,31 @@ export async function syncVideoToRoom(
   sharedVideo: SharedVideoState,
   video: HTMLVideoElement,
   localTimestamp: number,
-  manualPlayMessage: string
+  manualPlayMessage: string,
+  playbackAdapter = createPlaybackAdapter(video)
 ): Promise<void> {
-  syncPlaybackRate(video, sharedVideo);
-
-  const realCurrent = calculateRealCurrent(sharedVideo, localTimestamp);
-  if (!sharedVideo.paused && Math.abs(video.currentTime - realCurrent) > 1) {
-    seekVideo(video, realCurrent);
-  } else if (sharedVideo.paused && Math.abs(video.currentTime - sharedVideo.currentTime) > 0.1) {
-    seekVideo(video, sharedVideo.currentTime);
+  const adapter = playbackAdapter;
+  const initialSnapshot = adapter.snapshot();
+  if (initialSnapshot.hasPlaybackError || (sharedVideo.isLoading && !sharedVideo.paused)) {
+    return;
+  }
+  if (!sharedVideo.isLoading) {
+    adapter.setPlaybackRate(sharedVideo.playbackRate);
   }
 
-  await syncPausedState(video, sharedVideo.paused, manualPlayMessage);
+  const realCurrent = calculateRealCurrent(sharedVideo, localTimestamp);
+  const snapshot = adapter.snapshot();
+  if (!sharedVideo.paused && Math.abs(snapshot.currentTime - realCurrent) > 1) {
+    if (!shouldSkipSeek(video, snapshot, realCurrent)) {
+      adapter.seek(realCurrent);
+      rememberSeek(video, realCurrent);
+    }
+  } else if (sharedVideo.paused && Math.abs(snapshot.currentTime - sharedVideo.currentTime) > 0.1) {
+    if (!shouldSkipSeek(video, snapshot, sharedVideo.currentTime)) {
+      adapter.seek(sharedVideo.currentTime);
+      rememberSeek(video, sharedVideo.currentTime);
+    }
+  }
+
+  await syncPausedState(adapter, sharedVideo.paused, manualPlayMessage);
 }

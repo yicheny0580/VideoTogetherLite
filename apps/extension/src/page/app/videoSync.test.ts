@@ -1,8 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SharedVideoState } from "@videotogetherlite/shared";
 
+import { createPlaybackAdapter } from "../infrastructure/mediaPlayback";
 import { syncVideoToRoom } from "./videoSync";
+
+afterEach(() => {
+  document.body.replaceChildren();
+});
 
 interface FakeVideo {
   currentTime: number;
@@ -11,6 +16,17 @@ interface FakeVideo {
   playbackRate: number;
   pause: () => void;
   play: () => Promise<void>;
+}
+
+interface FakeYouTubePlayer {
+  getCurrentTime: () => number;
+  getDuration: () => number;
+  getPlaybackRate: () => number;
+  getPlayerState: () => number;
+  pauseVideo: () => void;
+  playVideo: () => void;
+  seekTo: (seconds: number, allowSeekAhead?: boolean) => void;
+  setPlaybackRate: (rate: number) => void;
 }
 
 function sharedVideo(overrides: Partial<SharedVideoState> = {}): SharedVideoState {
@@ -52,6 +68,108 @@ function createVideo(overrides: Partial<FakeVideo> = {}) {
     pause,
     play,
     video: fake as unknown as HTMLVideoElement
+  };
+}
+
+function createYouTubeVideo({
+  bufferOnSeek = false,
+  currentTime = 0,
+  duration = 100,
+  playbackRate = 1,
+  playerState = 2
+}: {
+  bufferOnSeek?: boolean;
+  currentTime?: number;
+  duration?: number;
+  playbackRate?: number;
+  playerState?: number;
+} = {}) {
+  let nextCurrentTime = currentTime;
+  let nextPlaybackRate = playbackRate;
+  let nextPlayerState = playerState;
+  let nextReadyState = playerState === 3 ? 2 : 4;
+  const rawCurrentTimeSetter = vi.fn();
+  const rawPlaybackRateSetter = vi.fn();
+  const play = vi.fn(async () => {
+    nextPlayerState = 1;
+  });
+  const pause = vi.fn(() => {
+    nextPlayerState = 2;
+  });
+  const video = document.createElement("video");
+  Object.defineProperty(video, "currentTime", {
+    configurable: true,
+    get: () => nextCurrentTime,
+    set: (seconds: number) => {
+      rawCurrentTimeSetter(seconds);
+      if (bufferOnSeek) {
+        nextPlayerState = 3;
+        nextReadyState = 2;
+      } else {
+        nextCurrentTime = seconds;
+        nextReadyState = 4;
+      }
+    }
+  });
+  Object.defineProperty(video, "duration", {
+    configurable: true,
+    get: () => duration
+  });
+  Object.defineProperty(video, "paused", {
+    configurable: true,
+    get: () => nextPlayerState !== 1 && nextPlayerState !== 3
+  });
+  Object.defineProperty(video, "playbackRate", {
+    configurable: true,
+    get: () => nextPlaybackRate,
+    set: (rate: number) => {
+      nextPlaybackRate = rate;
+      rawPlaybackRateSetter(rate);
+    }
+  });
+  Object.defineProperty(video, "readyState", {
+    configurable: true,
+    get: () => nextReadyState
+  });
+  video.play = play;
+  video.pause = pause;
+
+  const player = document.createElement("div") as unknown as HTMLElement & FakeYouTubePlayer;
+  player.className = "html5-video-player";
+  player.getCurrentTime = vi.fn(() => nextCurrentTime);
+  player.getDuration = vi.fn(() => duration);
+  player.getPlaybackRate = vi.fn(() => nextPlaybackRate);
+  player.getPlayerState = vi.fn(() => nextPlayerState);
+  player.pauseVideo = vi.fn(() => {
+    nextPlayerState = 2;
+  });
+  player.playVideo = vi.fn(() => {
+    nextPlayerState = 1;
+  });
+  player.seekTo = vi.fn((seconds: number) => {
+    if (bufferOnSeek) {
+      nextPlayerState = 3;
+    } else {
+      nextCurrentTime = seconds;
+    }
+  });
+  player.setPlaybackRate = vi.fn((rate: number) => {
+    nextPlaybackRate = rate;
+  });
+  player.append(video);
+  document.body.append(player);
+
+  return {
+    pause,
+    player,
+    play,
+    rawCurrentTimeSetter,
+    rawPlaybackRateSetter,
+    setPlayerState: (state: number) => {
+      nextPlayerState = state;
+      nextReadyState = state === 3 ? 2 : 4;
+    },
+    video
   };
 }
 
@@ -116,5 +234,90 @@ describe("syncVideoToRoom", () => {
 
     expect(fake.currentTime).toBe(20);
     expect(fake.playbackRate).toBe(1.5);
+  });
+
+  it("skips media commands while the shared video is loading", async () => {
+    const { fake, play, video } = createVideo({ currentTime: 4, paused: true, playbackRate: 1 });
+
+    await syncVideoToRoom(
+      sharedVideo({ currentTime: 20, isLoading: true, paused: false, playbackRate: 1.5 }),
+      video,
+      100,
+      "manual"
+    );
+
+    expect(fake.currentTime).toBe(4);
+    expect(fake.playbackRate).toBe(1);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it("still seeks a paused loading shared video once", async () => {
+    const { fake, video } = createVideo({ currentTime: 4, paused: true, playbackRate: 1 });
+
+    await syncVideoToRoom(
+      sharedVideo({ currentTime: 20, isLoading: true, paused: true, playbackRate: 1.5 }),
+      video,
+      100,
+      "manual"
+    );
+
+    expect(fake.currentTime).toBe(20);
+    expect(fake.playbackRate).toBe(1);
+  });
+
+  it("uses native video controls for YouTube without calling seekTo", async () => {
+    const { player, play, rawCurrentTimeSetter, rawPlaybackRateSetter, video } = createYouTubeVideo({
+      currentTime: 4,
+      playerState: 2
+    });
+
+    await syncVideoToRoom(
+      sharedVideo({ currentTime: 20, paused: false, playbackRate: 1.25 }),
+      video,
+      100,
+      "manual",
+      createPlaybackAdapter(video, "www.youtube.com")
+    );
+
+    expect(rawCurrentTimeSetter).toHaveBeenCalledWith(20);
+    expect(rawPlaybackRateSetter).toHaveBeenCalledWith(1.25);
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(player.seekTo).not.toHaveBeenCalled();
+    expect(player.setPlaybackRate).not.toHaveBeenCalled();
+    expect(player.playVideo).not.toHaveBeenCalled();
+  });
+
+  it("pauses YouTube through the native video element", async () => {
+    const { pause, player, video } = createYouTubeVideo({
+      currentTime: 10,
+      playerState: 1
+    });
+
+    await syncVideoToRoom(
+      sharedVideo({ currentTime: 10, paused: true }),
+      video,
+      100,
+      "manual",
+      createPlaybackAdapter(video, "www.youtube.com")
+    );
+
+    expect(pause).toHaveBeenCalledTimes(1);
+    expect(player.pauseVideo).not.toHaveBeenCalled();
+  });
+
+  it("dedupes repeated seeks while the target video is buffering", async () => {
+    const { player, rawCurrentTimeSetter, video } = createYouTubeVideo({
+      bufferOnSeek: true,
+      currentTime: 4,
+      playerState: 2
+    });
+    const adapter = createPlaybackAdapter(video, "www.youtube.com");
+    const shared = sharedVideo({ currentTime: 20, paused: true });
+
+    await syncVideoToRoom(shared, video, 100, "manual", adapter);
+    await syncVideoToRoom(shared, video, 101, "manual", adapter);
+
+    expect(rawCurrentTimeSetter).toHaveBeenCalledTimes(1);
+    expect(player.seekTo).not.toHaveBeenCalled();
   });
 });

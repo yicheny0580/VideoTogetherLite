@@ -8,13 +8,16 @@ import { startFixtureServer, type FixtureServer } from "./fixtureServer";
 
 type OpenFixture = (pathname?: string, options?: { waitForPanel?: boolean }) => Promise<Page>;
 type OpenIsolatedFixture = (pathname?: string, options?: { waitForPanel?: boolean }) => Promise<Page>;
+type OpenExternal = (url: string, options?: { waitForPanel?: boolean }) => Promise<Page>;
 type OpenPopup = () => Promise<Page>;
 
 interface ExtensionFixtures {
   extensionContext: BrowserContext;
   extensionId: string;
   fixtureServer: FixtureServer;
+  openExternal: OpenExternal;
   openFixture: OpenFixture;
+  openIsolatedExternal: OpenExternal;
   openIsolatedFixture: OpenIsolatedFixture;
   openPopup: OpenPopup;
 }
@@ -25,6 +28,8 @@ const extensionManifest = resolve(extensionPath, "manifest.json");
 const extensionLaunchArgs = [
   `--disable-extensions-except=${extensionPath}`,
   `--load-extension=${extensionPath}`,
+  // Live-site e2e pages need to reach the local debug server from HTTPS origins.
+  "--disable-web-security",
   "--no-sandbox"
 ];
 
@@ -65,6 +70,17 @@ export const test = base.extend<ExtensionFixtures>({
     }
   },
 
+  openExternal: async ({ extensionContext }, runFixture) => {
+    await runFixture(async (url, options = {}) => {
+      const page = await extensionContext.newPage();
+      await page.goto(url, { timeout: 60_000, waitUntil: "domcontentloaded" });
+      if (options.waitForPanel !== false) {
+        await expect(page.locator("#videoTogetherLiteFlyPanel")).toBeVisible({ timeout: 30_000 });
+      }
+      return page;
+    });
+  },
+
   openFixture: async ({ extensionContext, fixtureServer }, runFixture) => {
     await runFixture(async (pathname = "/host", options = {}) => {
       const page = await extensionContext.newPage();
@@ -74,6 +90,32 @@ export const test = base.extend<ExtensionFixtures>({
       }
       return page;
     });
+  },
+
+  openIsolatedExternal: async ({ browserName: _browserName }, runFixture) => {
+    const opened: Array<{ context: BrowserContext; userDataDir: string }> = [];
+    try {
+      await runFixture(async (url, options = {}) => {
+        const userDataDir = await mkdtemp(join(tmpdir(), "videotogetherlite-e2e-isolated-"));
+        const context = await chromium.launchPersistentContext(userDataDir, {
+          args: extensionLaunchArgs,
+          channel: "chromium",
+          headless: true
+        });
+        opened.push({ context, userDataDir });
+        const page = await context.newPage();
+        await page.goto(url, { timeout: 60_000, waitUntil: "domcontentloaded" });
+        if (options.waitForPanel !== false) {
+          await expect(page.locator("#videoTogetherLiteFlyPanel")).toBeVisible({ timeout: 30_000 });
+        }
+        return page;
+      });
+    } finally {
+      await Promise.all(opened.map(async ({ context, userDataDir }) => {
+        await context.close().catch(() => undefined);
+        await rm(userDataDir, { force: true, recursive: true });
+      }));
+    }
   },
 
   openIsolatedFixture: async ({ fixtureServer }, runFixture) => {

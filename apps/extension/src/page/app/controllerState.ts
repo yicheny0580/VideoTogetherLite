@@ -9,28 +9,40 @@ import {
 } from "@videotogetherlite/shared";
 
 import type { VideoTogetherLiteApiClient } from "../infrastructure/httpClient";
-import { isVideoLoaded, type VideoRegistry } from "../infrastructure/videoRegistry";
+import { createPlaybackAdapter, type PlaybackAdapter } from "../infrastructure/mediaPlayback";
+import type { VideoRegistry } from "../infrastructure/videoRegistry";
 import type { VideoTogetherLiteWsClient } from "../infrastructure/wsClient";
 import { getHostName } from "./controllerUtils";
 import type { PanelState, ParticipantPanelState, StatusTone } from "./panelState";
 import { syncVideoToRoom } from "./videoSync";
 
+interface FocusedVideoBuildOptions {
+  createAdapter?: (video: HTMLVideoElement) => PlaybackAdapter;
+}
+
 export function buildFocusedVideoState(
   videoRegistry: VideoRegistry,
-  timeSync: TimeSyncState
+  timeSync: TimeSyncState,
+  options: FocusedVideoBuildOptions = {}
 ): SharedVideoState | undefined {
   const video = videoRegistry.getVideoDom();
   if (video === null) {
     return undefined;
   }
+  const adapter = (options.createAdapter ?? createPlaybackAdapter)(video);
+  const snapshot = adapter.snapshot();
+  if (snapshot.hasPlaybackError) {
+    return undefined;
+  }
+
   return {
-    currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
-    duration: Number.isFinite(video.duration) ? video.duration : 0,
-    isLoading: !isVideoLoaded(video),
+    currentTime: snapshot.currentTime,
+    duration: snapshot.duration,
+    isLoading: snapshot.isLoading,
     lastUpdateClientTime: getLocalTimestamp(timeSync),
     lastUpdateServerTime: 0,
-    paused: video.paused,
-    playbackRate: Number.isFinite(video.playbackRate) ? video.playbackRate : 1,
+    paused: snapshot.paused,
+    playbackRate: snapshot.playbackRate,
     title: videoRegistry.getFocusedVideoSummary()?.title || document.title || "Untitled video",
     url: linkWithoutState(window.location)
   };

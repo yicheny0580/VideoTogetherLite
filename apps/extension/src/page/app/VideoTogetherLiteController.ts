@@ -2,9 +2,7 @@ import {
   createTimeSyncState,
   linkWithoutState,
   updateTimeSync,
-  type Language,
-  type Room,
-  type RoomSessionResponse
+  type Language, type Room, type RoomSessionResponse
 } from "@videotogetherlite/shared";
 
 import { translate, type LocaleKey } from "../../i18n/messages";

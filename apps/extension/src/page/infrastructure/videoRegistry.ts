@@ -1,3 +1,5 @@
+import { createPlaybackAdapter } from "./mediaPlayback";
+
 export interface FocusableVideo {
   currentTime: number;
   duration: number;
@@ -16,17 +18,6 @@ export function generateUUID(): string {
     const random = crypto.getRandomValues(new Uint8Array(1))[0]!;
     return (Number(value) ^ random & 15 >> Number(value) / 4).toString(16);
   });
-}
-
-export function isVideoLoaded(video: HTMLVideoElement): boolean {
-  try {
-    if (Number.isNaN(video.readyState)) {
-      return true;
-    }
-    return video.readyState >= 3;
-  } catch {
-    return true;
-  }
 }
 
 function videoTitle(video: HTMLVideoElement): string {
@@ -347,11 +338,12 @@ export class VideoRegistry {
   }
 
   private toSummary(video: HTMLVideoElement): FocusableVideo {
+    const snapshot = createPlaybackAdapter(video).snapshot();
     return {
-      currentTime: Number.isFinite(video.currentTime) ? video.currentTime : 0,
-      duration: Number.isFinite(video.duration) ? video.duration : 0,
+      currentTime: snapshot.currentTime,
+      duration: snapshot.duration,
       id: this.ensureVideoId(video),
-      paused: video.paused,
+      paused: snapshot.paused,
       title: videoTitle(video),
       visible: isVisibleVideo(video)
     };

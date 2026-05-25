@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createTimeSyncState, type Room, type SharedVideoState } from "@videotogetherlite/shared";
 
+import type { PlaybackAdapter } from "../infrastructure/mediaPlayback";
 import type { FocusableVideo, VideoRegistry } from "../infrastructure/videoRegistry";
 import { buildFocusedVideoState, syncFollowTargetVideo } from "./controllerState";
 
@@ -46,6 +47,27 @@ function sharedVideo(overrides: Partial<SharedVideoState> = {}): SharedVideoStat
   };
 }
 
+function playbackAdapter(overrides: Partial<ReturnType<PlaybackAdapter["snapshot"]>> = {}): PlaybackAdapter {
+  return {
+    kind: "youtube",
+    pause: () => undefined,
+    play: async () => undefined,
+    seek: () => undefined,
+    setPlaybackRate: () => undefined,
+    snapshot: () => ({
+      currentTime: 8,
+      duration: 120,
+      hasPlaybackError: false,
+      isLoading: false,
+      isStable: true,
+      paused: false,
+      phase: "playing",
+      playbackRate: 1.25,
+      ...overrides
+    })
+  };
+}
+
 describe("buildFocusedVideoState", () => {
   it("keeps a playing state even while the video is still loading", () => {
     const state = buildFocusedVideoState(
@@ -63,6 +85,42 @@ describe("buildFocusedVideoState", () => {
       registryFor(null),
       createTimeSyncState()
     )).toBeUndefined();
+  });
+
+  it("publishes YouTube loading state instead of stale previous state", () => {
+    const state = buildFocusedVideoState(
+      registryFor(videoWithState()),
+      createTimeSyncState(),
+      {
+        createAdapter: () => playbackAdapter({
+          currentTime: 625,
+          isLoading: true,
+          isStable: false,
+          phase: "buffering"
+        })
+      }
+    );
+
+    expect(state).toMatchObject({
+      currentTime: 625,
+      isLoading: true
+    });
+  });
+
+  it("does not publish a YouTube playback error", () => {
+    const state = buildFocusedVideoState(
+      registryFor(videoWithState()),
+      createTimeSyncState(),
+      {
+        createAdapter: () => playbackAdapter({
+          hasPlaybackError: true,
+          isLoading: true,
+          isStable: false
+        })
+      }
+    );
+
+    expect(state).toBeUndefined();
   });
 
   it("follows with an automatic playback target instead of a picked video", async () => {
