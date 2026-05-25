@@ -1,7 +1,5 @@
 import {
-  Role,
   linkWithoutState,
-  parseRole,
   stateKeys,
   type RoomState
 } from "@videotogetherlite/shared";
@@ -30,31 +28,34 @@ export class PageStateStore {
       return null;
     }
 
-    const role = parseRole(getter("VideoTogetherLiteRole"));
-    const roomName = getter("VideoTogetherLiteRoomName");
+    const roomCode = getter("VideoTogetherLiteRoomCode");
     const sessionToken = getter("VideoTogetherLiteSessionToken");
-    if (!roomName || !sessionToken || role === null) {
+    if (!roomCode || !sessionToken) {
       return null;
     }
 
     return {
-      role,
-      roomName,
+      followUserId: getter("VideoTogetherLiteFollowUserId") ?? "",
+      roomCode,
       sessionToken,
       timestamp,
       url: getter("VideoTogetherLiteUrl") || linkWithoutState(currentLocation)
     };
   }
 
-  save(roomName: string, sessionToken: string, role: Role, link: string): void {
-    if (role === Role.Null) {
+  save(roomCode: string, sessionToken: string, link: string, followUserId = ""): void {
+    if (roomCode === "" || sessionToken === "") {
       return;
     }
 
     sessionStorage.setItem("VideoTogetherLiteUrl", link);
-    sessionStorage.setItem("VideoTogetherLiteRoomName", roomName);
+    sessionStorage.setItem("VideoTogetherLiteRoomCode", roomCode);
     sessionStorage.setItem("VideoTogetherLiteSessionToken", sessionToken);
-    sessionStorage.setItem("VideoTogetherLiteRole", String(role));
     sessionStorage.setItem("VideoTogetherLiteTimestamp", String(Date.now() / 1000));
+    if (followUserId === "") {
+      sessionStorage.removeItem("VideoTogetherLiteFollowUserId");
+    } else {
+      sessionStorage.setItem("VideoTogetherLiteFollowUserId", followUserId);
+    }
   }
 }

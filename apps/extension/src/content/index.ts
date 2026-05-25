@@ -1,10 +1,33 @@
 const blockedHosts = new Set(["challenges.cloudflare.com"]);
 const languages = ["en-us", "zh-cn"] as const;
+const nicknameKey = "VideoTogetherLiteNickname";
+const userIdKey = "VideoTogetherLiteUserId";
 
 type Language = typeof languages[number];
 
 function getValue<T>(key: string): Promise<T | undefined> {
   return chrome.storage.local.get([key]).then((result) => result[key] as T | undefined);
+}
+
+function setValue<T>(key: string, value: T): Promise<void> {
+  return chrome.storage.local.set({ [key]: value });
+}
+
+function generateUUID(): string {
+  if (crypto.randomUUID !== undefined) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function getOrCreateUserId(): Promise<string> {
+  const storedUserId = await getValue<string>(userIdKey);
+  if (storedUserId) {
+    return storedUserId;
+  }
+  const nextUserId = generateUUID();
+  await setValue(userIdKey, nextUserId);
+  return nextUserId;
 }
 
 function resolveLanguage(candidate: unknown): Language {
@@ -83,17 +106,34 @@ function mountLoadingIndicator(): void {
   (document.body || document.documentElement).appendChild(loading);
 }
 
-function injectPageScript(language: Language): void {
+function listenForProfileUpdates(): void {
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) {
+      return;
+    }
+    const message = event.data as { data?: { nickname?: unknown }; source?: unknown; type?: unknown };
+    if (message?.source !== "VideoTogetherLite" || message.type !== "profile.save") {
+      return;
+    }
+    if (typeof message.data?.nickname === "string") {
+      void setValue(nicknameKey, message.data.nickname);
+    }
+  });
+}
+
+function injectPageScript(language: Language, userId: string, nickname: string): void {
   const script = document.createElement("script");
   const source = new URL(chrome.runtime.getURL("page.js"));
   source.searchParams.set("language", language);
+  source.searchParams.set("nickname", nickname);
+  source.searchParams.set("userId", userId);
   script.src = source.toString();
   script.type = "module";
   (document.body || document.documentElement).appendChild(script);
 }
 
 async function main(): Promise<void> {
-  if (document instanceof XMLDocument || blockedHosts.has(window.location.hostname)) {
+  if (window.self !== window.top || document instanceof XMLDocument || blockedHosts.has(window.location.hostname)) {
     return;
   }
 
@@ -106,8 +146,11 @@ async function main(): Promise<void> {
   sendEnabledStatus(true);
   const configuredLanguage = await getValue<string>("DisplayLanguage");
   const language = resolveLanguage(configuredLanguage ?? navigator.language);
+  const userId = await getOrCreateUserId();
+  const nickname = await getValue<string>(nicknameKey) ?? "";
+  listenForProfileUpdates();
   mountLoadingIndicator();
-  injectPageScript(language);
+  injectPageScript(language, userId, nickname);
 }
 
 void main();

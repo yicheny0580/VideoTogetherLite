@@ -12,7 +12,6 @@ declare global {
   }
 
   interface HTMLVideoElement {
-    VideoTogetherLiteActivatedTime?: number;
     VideoTogetherLiteListenerAdded?: boolean;
     VideoTogetherLiteVideoId?: string;
   }

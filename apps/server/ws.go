@@ -52,21 +52,21 @@ func (h *Hub) run() {
 	}
 }
 
-func (h *Hub) addClientToRoom(roomName string, c *Client) {
-	if roomName == "" {
+func (h *Hub) addClientToRoom(roomCode string, c *Client) {
+	if roomCode == "" {
 		return
 	}
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if c.roomName != "" && c.roomName != roomName {
-		delete(h.roomClients[c.roomName], c)
+	if c.roomCode != "" && c.roomCode != roomCode {
+		delete(h.roomClients[c.roomCode], c)
 	}
-	c.roomName = roomName
-	clients := h.roomClients[roomName]
+	c.roomCode = roomCode
+	clients := h.roomClients[roomCode]
 	if clients == nil {
 		clients = map[*Client]bool{}
-		h.roomClients[roomName] = clients
+		h.roomClients[roomCode] = clients
 	}
 	clients[c] = true
 }
@@ -75,13 +75,14 @@ func (h *Hub) removeClient(c *Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if c.roomName == "" {
+	if c.roomCode == "" {
 		return
 	}
-	delete(h.roomClients[c.roomName], c)
+	delete(h.roomClients[c.roomCode], c)
+	c.roomCode = ""
 }
 
-func (h *Hub) broadcastRoom(roomName string, response WsResponseMessage) {
+func (h *Hub) broadcastRoom(roomCode string, response WsResponseMessage) {
 	b, err := json.Marshal(response)
 	if err != nil {
 		log.Printf("websocket encode error: %v", err)
@@ -89,7 +90,7 @@ func (h *Hub) broadcastRoom(roomName string, response WsResponseMessage) {
 	}
 
 	h.mu.RLock()
-	clients := h.roomClients[roomName]
+	clients := h.roomClients[roomCode]
 	for client := range clients {
 		select {
 		case client.send <- b:
@@ -109,9 +110,9 @@ func (h *Hub) cleanupExpiredRooms() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	for roomName := range h.roomClients {
-		if !h.liteService.RoomExists(roomName) {
-			delete(h.roomClients, roomName)
+	for roomCode := range h.roomClients {
+		if !h.liteService.RoomExists(roomCode) {
+			delete(h.roomClients, roomCode)
 		}
 	}
 }
@@ -135,7 +136,7 @@ type Client struct {
 	hub         *Hub
 	conn        *websocket.Conn
 	send        chan []byte
-	roomName    string
+	roomCode    string
 	liteContext *VideoTogetherLiteContext
 }
 
@@ -184,18 +185,39 @@ func (c *Client) readPump() {
 		}
 
 		switch req.Type {
+		case "room.create":
+			c.createRoom(&req)
 		case "room.join":
 			c.joinRoom(&req)
 		case "room.get":
 			c.getRoom(&req)
-		case "room.hostUpdate":
+		case "room.leave":
+			c.leaveRoom(&req)
+		case "room.update":
 			c.updateRoom(&req)
-		case "room.memberUpdate":
-			c.updateMember(&req)
 		default:
 			c.replyError(req.ID, newAppError(errInvalidRequest, "unknown message type"))
 		}
 	}
+}
+
+func (c *Client) createRoom(rawReq *WsRequestMessage) {
+	var req createRoomRequest
+	if err := json.Unmarshal(rawReq.Data, &req); err != nil {
+		c.replyError(rawReq.ID, newAppError(errInvalidRequest, "invalid data"))
+		return
+	}
+
+	result, err := c.hub.liteService.CreateRoom(c.liteContext, CreateRoomInput{
+		Nickname: req.Nickname,
+		UserID:   req.UserID,
+	})
+	if err != nil {
+		c.replyError(rawReq.ID, err)
+		return
+	}
+	c.hub.addClientToRoom(result.Room.RoomCode, c)
+	c.replyRoom(rawReq.ID, rawReq.Type, result)
 }
 
 func (c *Client) joinRoom(rawReq *WsRequestMessage) {
@@ -206,16 +228,19 @@ func (c *Client) joinRoom(rawReq *WsRequestMessage) {
 	}
 
 	result, err := c.hub.liteService.JoinRoom(c.liteContext, JoinRoomInput{
-		Password: req.Password,
-		RoomName: req.Name,
-		UserID:   req.UserID,
+		InviteCode:   req.InviteCode,
+		InviteSecret: req.InviteSecret,
+		Nickname:     req.Nickname,
+		RoomCode:     req.RoomCode,
+		UserID:       req.UserID,
 	})
 	if err != nil {
 		c.replyError(rawReq.ID, err)
 		return
 	}
-	c.hub.addClientToRoom(req.Name, c)
+	c.hub.addClientToRoom(result.Room.RoomCode, c)
 	c.replyRoom(rawReq.ID, rawReq.Type, result)
+	c.hub.broadcastRoom(result.Room.RoomCode, roomUpdatedMessage(result))
 }
 
 func (c *Client) getRoom(rawReq *WsRequestMessage) {
@@ -226,78 +251,71 @@ func (c *Client) getRoom(rawReq *WsRequestMessage) {
 	}
 
 	result, err := c.hub.liteService.GetRoom(c.liteContext, GetRoomInput{
-		RoomName:     req.Name,
 		SessionToken: req.SessionToken,
 	})
 	if err != nil {
 		c.replyError(rawReq.ID, err)
 		return
 	}
-	c.hub.addClientToRoom(req.Name, c)
+	c.hub.addClientToRoom(result.Room.RoomCode, c)
 	c.replyRoom(rawReq.ID, rawReq.Type, result)
 }
 
-func (c *Client) updateMember(rawReq *WsRequestMessage) {
-	startTime := Timestamp()
-	var req memberUpdateRequest
+func (c *Client) leaveRoom(rawReq *WsRequestMessage) {
+	var req leaveRoomRequest
 	if err := json.Unmarshal(rawReq.Data, &req); err != nil {
 		c.replyError(rawReq.ID, newAppError(errInvalidRequest, "invalid data"))
 		return
 	}
 
-	result, needNotification, err := c.hub.liteService.UpdateMember(c.liteContext, MemberUpdateInput{
-		CurrentURL:   req.CurrentURL,
-		IsLoading:    req.IsLoading,
-		RoomName:     req.RoomName,
+	oldRoomCode := c.roomCode
+	result, deleted, err := c.hub.liteService.LeaveRoom(c.liteContext, LeaveRoomInput{
 		SessionToken: req.SessionToken,
-		UserID:       req.UserID,
 	})
 	if err != nil {
 		c.replyError(rawReq.ID, err)
 		return
 	}
-	c.hub.addClientToRoom(req.RoomName, c)
-	c.replyRoom(rawReq.ID, rawReq.Type, result)
-	c.replyTimestamp(rawReq.ID, req.SendLocalTimestamp, startTime, Timestamp())
-	if needNotification {
-		c.hub.broadcastRoom(req.RoomName, roomUpdatedMessage(result))
+	c.reply(WsResponseMessage{
+		ID:   rawReq.ID,
+		Type: rawReq.Type,
+		Data: TimestampResponse{Timestamp: result.Timestamp},
+	})
+	c.hub.removeClient(c)
+	if !deleted && result.Room.RoomCode != "" {
+		c.hub.broadcastRoom(result.Room.RoomCode, roomUpdatedMessage(result))
+	} else if oldRoomCode != "" {
+		c.hub.cleanupExpiredRooms()
 	}
 }
 
 func (c *Client) updateRoom(rawReq *WsRequestMessage) {
 	startTime := Timestamp()
-	var req hostUpdateRequest
+	var req updateRoomRequest
 	if err := json.Unmarshal(rawReq.Data, &req); err != nil {
 		c.replyError(rawReq.ID, newAppError(errInvalidRequest, "invalid data"))
 		return
 	}
-	if err := validateHostUpdate(req); err != nil {
+	if err := validateRoomUpdate(req); err != nil {
 		c.replyError(rawReq.ID, err)
 		return
 	}
 
-	result, err := c.hub.liteService.HostUpdateRoom(c.liteContext, HostUpdateInput{
-		CurrentTime:          req.CurrentTime,
-		Duration:             req.Duration,
-		LastUpdateClientTime: req.LastUpdateClientTime,
-		Password:             req.Password,
-		Paused:               req.Paused,
-		PlaybackRate:         req.PlaybackRate,
-		Protected:            req.Protected,
-		RoomName:             req.Name,
-		SessionToken:         req.SessionToken,
-		URL:                  req.URL,
-		UserID:               req.UserID,
-		VideoTitle:           req.VideoTitle,
+	result, err := c.hub.liteService.UpdateRoom(c.liteContext, UpdateRoomInput{
+		FocusedVideo:  req.FocusedVideo,
+		Nickname:      req.Nickname,
+		SendLocalTime: req.SendLocalTimestamp,
+		SessionToken:  req.SessionToken,
+		Sharing:       req.Sharing,
 	})
 	if err != nil {
 		c.replyError(rawReq.ID, err)
 		return
 	}
-	c.hub.addClientToRoom(req.Name, c)
+	c.hub.addClientToRoom(result.Room.RoomCode, c)
 	c.replyRoom(rawReq.ID, rawReq.Type, result)
 	c.replyTimestamp(rawReq.ID, req.SendLocalTimestamp, startTime, Timestamp())
-	c.hub.broadcastRoom(req.Name, roomUpdatedMessage(result))
+	c.hub.broadcastRoom(result.Room.RoomCode, roomUpdatedMessage(result))
 }
 
 func roomUpdatedMessage(result RoomSessionResult) WsResponseMessage {
@@ -315,6 +333,8 @@ func (c *Client) replyRoom(id, messageType string, result RoomSessionResult) {
 		ID:   id,
 		Type: messageType,
 		Data: RoomSessionResponse{
+			InviteCode:   result.InviteCode,
+			InviteSecret: result.InviteSecret,
 			Room:         result.Room,
 			SessionToken: result.SessionToken,
 			Timestamp:    result.Timestamp,

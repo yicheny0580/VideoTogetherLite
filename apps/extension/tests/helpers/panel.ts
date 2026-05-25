@@ -28,16 +28,24 @@ export function exitButton(page: Page): Locator {
   return page.locator("#videoTogetherLiteExitButton");
 }
 
+export function inviteCodeText(page: Page): Locator {
+  return page.locator("#videoTogetherLiteInviteCodeText");
+}
+
 export function joinButton(page: Page): Locator {
   return page.locator("#videoTogetherLiteJoinButton");
 }
 
-export function memberCount(page: Page): Locator {
-  return page.locator("#videoTogetherLiteMemberCount");
+export function participantCount(page: Page): Locator {
+  return page.locator("#videoTogetherLiteParticipantCount");
 }
 
-export function roleText(page: Page): Locator {
-  return page.locator("#videoTogetherLiteRoleText");
+export function pickVideoButton(page: Page): Locator {
+  return page.locator("#videoTogetherLitePickVideoButton");
+}
+
+export function shareToggle(page: Page): Locator {
+  return page.locator("#videoTogetherLiteShareToggle");
 }
 
 export function statusText(page: Page): Locator {
@@ -74,9 +82,13 @@ export async function expectVideoState(
   }
 }
 
-export async function fillLobby(page: Page, roomName: string, password: string): Promise<void> {
-  await page.locator("#videoTogetherLiteRoomNameInput").fill(roomName);
-  await page.locator("#videoTogetherLiteRoomPasswordInput").fill(password);
+export async function fillInvite(page: Page, inviteCode: string): Promise<void> {
+  await page.locator("#videoTogetherLiteInviteCodeInput").fill(inviteCode);
+}
+
+export async function fillNickname(page: Page, nickname: string): Promise<void> {
+  await page.locator("#videoTogetherLiteNicknameInput").fill(nickname);
+  await page.locator("#videoTogetherLiteNicknameInput").blur();
 }
 
 export async function getFixtureVideo(page: Page): Promise<FixtureVideoState> {
@@ -87,6 +99,11 @@ export async function getFixtureVideo(page: Page): Promise<FixtureVideoState> {
     }
     return fixture.getVideo();
   });
+}
+
+export async function pickFirstVideo(page: Page): Promise<void> {
+  await pickVideoButton(page).click();
+  await page.getByText("Use this video").click();
 }
 
 export async function setFixtureVideo(
@@ -100,8 +117,4 @@ export async function setFixtureVideo(
     }
     fixture.setVideo(next);
   }, state);
-}
-
-export function uniqueRoomName(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }

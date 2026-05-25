@@ -7,8 +7,8 @@ All room APIs are under `/api/v1`, use JSON, and return either a success body or
 ```json
 {
   "error": {
-    "code": "wrong_password",
-    "message": "Wrong Password"
+    "code": "wrong_invite_secret",
+    "message": "Wrong invite code"
   }
 }
 ```
@@ -24,62 +24,70 @@ Returns server time and the current runtime version token.
 }
 ```
 
-#### POST /api/v1/rooms/host-update
+#### POST /api/v1/rooms/create
 
-Creates, claims, or updates a room as host. Initial create/claim sends `password`; later updates send `sessionToken`.
+Creates a room, joins the creator as a participant, and returns an invite code.
 
 ```json
 {
-  "name": "room",
-  "password": "pw",
-  "userId": "host-1",
-  "playbackRate": 1,
-  "currentTime": 1.123,
-  "paused": false,
-  "url": "https://example.test/watch",
-  "lastUpdateClientTime": 1.123,
-  "duration": 600,
-  "protected": true,
-  "videoTitle": "Example",
-  "sendLocalTimestamp": 1.123
+  "userId": "user-1",
+  "nickname": "Alice"
 }
 ```
 
 #### POST /api/v1/rooms/join
 
-Joins an existing room as a member and returns a `sessionToken`.
+Joins an existing room using a generated invite code.
 
 ```json
 {
-  "name": "room",
-  "password": "pw",
-  "userId": "member-1"
+  "inviteCode": "ABCD2345.secret",
+  "userId": "user-2",
+  "nickname": "Bob"
 }
 ```
 
 #### POST /api/v1/rooms/get
 
-Gets room playback state using a room session token.
+Gets room participant state using a room session token.
 
 ```json
 {
-  "name": "room",
   "sessionToken": "..."
 }
 ```
 
-#### POST /api/v1/rooms/member-update
+#### POST /api/v1/rooms/update
 
-Updates member presence/loading state using a member session token.
+Updates the current participant nickname, presence, sharing flag, and optional shared video state.
 
 ```json
 {
-  "roomName": "room",
   "sessionToken": "...",
-  "userId": "member-1",
-  "currentUrl": "https://example.test/watch",
-  "isLoading": false,
-  "sendLocalTimestamp": 1.123
+  "nickname": "Alice",
+  "sharing": true,
+  "sendLocalTimestamp": 1.123,
+  "focusedVideo": {
+    "url": "https://example.test/watch",
+    "title": "Example",
+    "currentTime": 1.123,
+    "duration": 600,
+    "paused": false,
+    "playbackRate": 1,
+    "isLoading": false,
+    "lastUpdateClientTime": 1.123,
+    "lastUpdateServerTime": 0
+  }
+}
+```
+
+#### POST /api/v1/rooms/leave
+
+Leaves the current room. The server deletes the room immediately when the last participant leaves or times out.
+
+```json
+{
+  "sessionToken": "..."
 }
 ```
 
@@ -87,21 +95,31 @@ Room responses include:
 
 ```json
 {
+  "inviteCode": "ABCD2345.secret",
+  "inviteSecret": "secret",
   "room": {
-    "name": "room",
-    "lastUpdateClientTime": 1.123,
-    "lastUpdateServerTime": 1.123,
-    "playbackRate": 1,
-    "currentTime": 1.123,
-    "paused": false,
-    "url": "https://example.test/watch",
-    "duration": 600,
-    "protected": true,
-    "videoTitle": "Example",
+    "roomCode": "ABCD2345",
     "uuid": "...",
-    "waitForLoading": false,
-    "beginLoadingTimestamp": 0,
-    "memberCount": 1
+    "participantCount": 1,
+    "participants": [
+      {
+        "userId": "user-1",
+        "nickname": "Alice",
+        "sharing": true,
+        "lastSeenServerTime": 1.123,
+        "focusedVideo": {
+          "url": "https://example.test/watch",
+          "title": "Example",
+          "currentTime": 1.123,
+          "duration": 600,
+          "paused": false,
+          "playbackRate": 1,
+          "isLoading": false,
+          "lastUpdateClientTime": 1.123,
+          "lastUpdateServerTime": 1.123
+        }
+      }
+    ]
   },
   "sessionToken": "...",
   "timestamp": 1.123
@@ -118,15 +136,18 @@ Client messages use:
 {
   "id": "1",
   "type": "room.get",
-  "data": {}
+  "data": {
+    "sessionToken": "..."
+  }
 }
 ```
 
 Supported message types:
 
+- `room.create`
 - `room.join`
 - `room.get`
-- `room.hostUpdate`
-- `room.memberUpdate`
+- `room.leave`
+- `room.update`
 
 Server messages include direct responses with the request `id`, `room.updated` broadcasts, `timestamp.replay`, and structured `error` responses.

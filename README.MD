@@ -2,6 +2,8 @@
 
 ## VideoTogether Lite is a Chrome extension that syncs video playback with friends in real time.
 
+Rooms use generated invite codes and participant nicknames. A browser profile can be in one room at a time, and users explicitly pick the video they want to share before enabling progress sharing.
+
 ## Visit https://github.com/yicheny0580/VideoTogetherLite for more information
 
 [ English ] [ [中文](https://github.com/yicheny0580/VideoTogetherLite/blob/main/README_zh.MD) ]

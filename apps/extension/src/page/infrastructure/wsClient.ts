@@ -1,12 +1,10 @@
 import type {
   GetRoomPayload,
-  HostUpdatePayload,
-  JoinRoomPayload,
   Language,
-  MemberUpdatePayload,
   Room,
   RoomSessionResponse,
   TimestampReplay,
+  UpdateRoomPayload,
   WsRequest,
   WsResponse
 } from "@videotogetherlite/shared";
@@ -24,8 +22,6 @@ function roomResponseToRoom(response: RoomSessionResponse | undefined): Room | n
 }
 
 export class VideoTogetherLiteWsClient {
-  private connectedToService = false;
-  private joinedName: string | null = null;
   private lastConnectTime = 0;
   private lastErrorMessage: string | null = null;
   private lastRoom: Room | null = null;
@@ -36,8 +32,7 @@ export class VideoTogetherLiteWsClient {
   constructor(
     private readonly language: Language,
     private readonly onRoom: (room: Room) => void,
-    private readonly onTimestamp: (timestamp: TimestampReplay) => void,
-    private readonly onSessionToken: (sessionToken: string) => void
+    private readonly onTimestamp: (timestamp: TimestampReplay) => void
   ) {}
 
   connect(host: string): void {
@@ -52,7 +47,6 @@ export class VideoTogetherLiteWsClient {
     }
 
     this.lastConnectTime = Date.now() / 1000;
-    this.connectedToService = false;
     try {
       this.disconnect();
       this.socket = new WebSocket(toWsUrl(host, this.language));
@@ -70,8 +64,6 @@ export class VideoTogetherLiteWsClient {
         // Ignore socket shutdown errors from pages that are unloading.
       }
     }
-    this.connectedToService = false;
-    this.joinedName = null;
     this.socket = null;
   }
 
@@ -89,17 +81,6 @@ export class VideoTogetherLiteWsClient {
     return this.socket?.readyState === WebSocket.OPEN;
   }
 
-  joinRoom(payload: JoinRoomPayload): void {
-    if (payload.name === this.joinedName) {
-      return;
-    }
-    this.send({
-      data: payload,
-      id: this.nextRequestId(),
-      type: "room.join"
-    });
-  }
-
   requestRoom(payload: GetRoomPayload): void {
     this.send({
       data: payload,
@@ -108,19 +89,11 @@ export class VideoTogetherLiteWsClient {
     });
   }
 
-  updateMember(payload: MemberUpdatePayload): void {
+  updateRoom(payload: UpdateRoomPayload): void {
     this.send({
       data: payload,
       id: this.nextRequestId(),
-      type: "room.memberUpdate"
-    });
-  }
-
-  updateRoom(payload: HostUpdatePayload): void {
-    this.send({
-      data: payload,
-      id: this.nextRequestId(),
-      type: "room.hostUpdate"
+      type: "room.update"
     });
   }
 
@@ -134,26 +107,17 @@ export class VideoTogetherLiteWsClient {
     }
 
     this.lastErrorMessage = null;
-    if (response.type === "room.join") {
-      const room = roomResponseToRoom(response.data as RoomSessionResponse);
-      this.joinedName = room?.name ?? null;
-    }
     if (
-      response.type === "room.join"
+      response.type === "room.create"
+      || response.type === "room.join"
       || response.type === "room.get"
-      || response.type === "room.hostUpdate"
-      || response.type === "room.memberUpdate"
+      || response.type === "room.update"
       || response.type === "room.updated"
     ) {
-      const data = response.data as RoomSessionResponse;
-      const room = roomResponseToRoom(data);
+      const room = roomResponseToRoom(response.data as RoomSessionResponse);
       if (!room) {
         return;
       }
-      if (data.sessionToken) {
-        this.onSessionToken(data.sessionToken);
-      }
-      this.connectedToService = true;
       this.lastRoom = room;
       this.lastUpdateTime = Date.now() / 1000;
       this.onRoom(room);

@@ -1,41 +1,51 @@
-import { Role, createTimeSyncState, getLocalTimestamp, linkWithMemberState, linkWithoutState, updateTimeSync, type HostUpdatePayload, type Language, type MemberUpdatePayload, type Room, type RoomSessionResponse } from "@videotogetherlite/shared";
+import {
+  createTimeSyncState,
+  linkWithoutState,
+  updateTimeSync,
+  type Language,
+  type Room,
+  type RoomSessionResponse
+} from "@videotogetherlite/shared";
 
 import { translate, type LocaleKey } from "../../i18n/messages";
 import { VideoTogetherLiteApiClient } from "../infrastructure/httpClient";
 import { PageStateStore } from "../infrastructure/pageStateStore";
 import { VideoTogetherLiteWsClient } from "../infrastructure/wsClient";
-import { isVideoLoaded, VideoRegistry } from "../infrastructure/videoRegistry";
+import { VideoRegistry } from "../infrastructure/videoRegistry";
 import { getServiceHost, stateMaxAgeSeconds } from "./config";
-import { generateTempUserId, getDisplayTimeText, isRoomProtected, isWaitForLoadingEnabled } from "./controllerUtils";
+import { getDisplayTimeText } from "./controllerUtils";
+import { followParticipantVideo, normalizeNickname, startVideoPickerFlow, syncFollowTargetVideo, toParticipantPanelState, updateParticipantRoom } from "./controllerState";
+import { getFullscreenChipLabels, removeFullscreenChip, updateFullscreenChip } from "./fullscreenChip";
 import { initialPanelState, type PanelState, type StatusTone } from "./panelState";
-import { syncVideoToRoom } from "./videoSync";
 
-export type { PanelState, StatusTone } from "./panelState";
+export type { PanelState, ParticipantPanelState, StatusTone } from "./panelState";
 
 type Listener = () => void;
 
 export class VideoTogetherLiteController {
   private readonly apiClient: VideoTogetherLiteApiClient;
+  private fullscreenChip: HTMLDivElement | null = null;
   private httpSucc = false;
+  private inviteCode = "";
+  private lastRoom: Room | null = null;
   private lastScheduledTaskTs = 0;
   private readonly listeners = new Set<Listener>();
   private readonly stateStore = new PageStateStore(stateMaxAgeSeconds);
   private sessionToken = "";
-  private tempUser = generateTempUserId();
   private timer: number | undefined;
   private timeSync = createTimeSyncState();
-  private url = "";
-  private waitForLoading = false;
-  private playAfterLoading = false;
   private readonly videoRegistry: VideoRegistry;
   private readonly wsClient: VideoTogetherLiteWsClient;
 
-  private panelState: PanelState = initialPanelState("");
+  private panelState: PanelState;
 
   constructor(
     private readonly language: Language,
+    private readonly userId: string,
+    initialNickname: string,
     private readonly serviceHost = getServiceHost()
   ) {
+    this.panelState = initialPanelState(this.message("global_notification"), initialNickname);
     this.apiClient = new VideoTogetherLiteApiClient(
       serviceHost,
       language,
@@ -49,7 +59,7 @@ export class VideoTogetherLiteController {
       language,
       (room) => {
         this.applyRoomInfo(room);
-        void this.scheduledTask();
+        void this.syncFollowTarget(room);
       },
       (replay) => {
         const now = Date.now() / 1000;
@@ -58,25 +68,29 @@ export class VideoTogetherLiteController {
           replay.sendLocalTimestamp,
           now - replay.sendServerTimestamp + replay.receiveServerTimestamp
         );
-      },
-      (sessionToken) => this.setSessionToken(sessionToken)
+      }
     );
     this.videoRegistry = new VideoRegistry(() => void this.scheduledTask());
-    this.panelState.statusText = this.message("global_notification");
   }
 
   readonly version = String(Math.floor(Date.now() / 1000));
 
-  createRoom(name: string, password: string): void {
-    if (name === "") {
-      this.updateStatus(this.message("please_input_room_name"), "danger");
-      return;
-    }
+  cancelVideoPicker(): void {
+    this.videoRegistry.cancelPicker();
+    this.setPanelState({ pickingVideo: false });
+  }
 
-    this.tempUser = generateTempUserId();
-    this.sessionToken = "";
-    this.url = linkWithoutState(window.location);
-    this.enterRoom(name, password, Role.Master);
+  clearFocusedVideo(): void {
+    this.videoRegistry.clearFocus();
+    this.setPanelState({ focusedVideo: null, sharing: false });
+    this.updateFullscreenChip();
+    void this.scheduledTask();
+  }
+
+  createRoom(nickname: string): void {
+    const normalizedNickname = normalizeNickname(nickname, this.message("default_nickname"));
+    this.setNickname(normalizedNickname);
+    void this.createRoomAsync(normalizedNickname);
   }
 
   dispose(): void {
@@ -84,36 +98,87 @@ export class VideoTogetherLiteController {
       window.clearInterval(this.timer);
     }
     this.wsClient.disconnect();
+    this.videoRegistry.disconnect();
+    document.removeEventListener("fullscreenchange", this.fullscreenListener);
+    this.fullscreenChip = removeFullscreenChip(this.fullscreenChip);
   }
 
   exitRoom(): void {
-    this.wsClient.disconnect();
-    this.sessionToken = "";
-    this.url = "";
-    this.waitForLoading = false;
-    this.playAfterLoading = false;
-    this.stateStore.clear();
-    this.setPanelState(initialPanelState(this.message("global_notification")));
+    const token = this.sessionToken;
+    this.clearLocalRoomState();
+    if (token !== "") {
+      void this.apiClient.leaveRoom({ sessionToken: token }).catch(() => undefined);
+    }
+  }
+
+  followParticipant(userId: string): void {
+    this.setPanelState({ followUserId: userId });
+    followParticipantVideo({
+      followUserId: userId,
+      notSharingText: this.message("participant_not_sharing"),
+      onFollow: () => void this.syncFollowTarget(this.lastRoom),
+      onStatus: (text, tone) => this.updateStatus(text, tone),
+      room: this.lastRoom,
+      roomCode: this.panelState.roomCode,
+      saveState: (followUserId) => this.saveState(followUserId),
+      sessionToken: this.sessionToken
+    });
   }
 
   getPanelState = (): PanelState => this.panelState;
 
-  joinRoom(name: string, password: string): void {
-    if (name === "") {
-      this.updateStatus(this.message("please_input_room_name"), "danger");
+  joinRoom(inviteCode: string, nickname: string): void {
+    const normalizedInvite = inviteCode.trim();
+    if (normalizedInvite === "") {
+      this.updateStatus(this.message("please_input_invite_code"), "danger");
       return;
     }
 
-    this.tempUser = generateTempUserId();
-    this.sessionToken = "";
-    this.url = this.getMainPageUrl();
-    this.enterRoom(name, password, Role.Member);
+    const normalizedNickname = normalizeNickname(nickname, this.message("default_nickname"));
+    this.setNickname(normalizedNickname);
+    void this.joinRoomAsync(normalizedInvite, normalizedNickname);
+  }
+
+  setNickname(nickname: string): void {
+    const normalizedNickname = normalizeNickname(nickname, this.message("default_nickname"));
+    this.setPanelState({ nickname: normalizedNickname });
+    window.postMessage({
+      data: { nickname: normalizedNickname },
+      source: "VideoTogetherLite",
+      type: "profile.save"
+    }, "*");
+    void this.scheduledTask();
+  }
+
+  setSharing(nextSharing: boolean): void {
+    if (nextSharing && this.videoRegistry.getVideoDom() === null) {
+      this.updateStatus(this.message("please_pick_video"), "danger");
+      return;
+    }
+    this.setPanelState({ sharing: nextSharing });
+    this.updateFullscreenChip();
+    void this.scheduledTask();
   }
 
   start(): void {
     this.videoRegistry.observe();
     this.recoverState();
+    document.addEventListener("fullscreenchange", this.fullscreenListener);
     this.timer = window.setInterval(() => void this.scheduledTask(true), 2000);
+  }
+
+  startVideoPicker(): void {
+    startVideoPickerFlow({
+      onSchedule: () => void this.scheduledTask(),
+      onUpdateFullscreen: () => this.updateFullscreenChip(),
+      setPanelState: (next) => this.setPanelState(next),
+      text: {
+        focused: this.message("video_focused"),
+        instruction: this.message("pick_video_instruction"),
+        notFound: this.message("no_videos_found")
+      },
+      videoRegistry: this.videoRegistry
+    });
   }
 
   subscribe = (listener: Listener): (() => void) => {
@@ -123,100 +188,89 @@ export class VideoTogetherLiteController {
     };
   };
 
+  private readonly fullscreenListener = (): void => this.updateFullscreenChip();
+
   private applyRoomInfo(room: Room | null): void {
     if (!room) {
       return;
     }
 
-    this.setWaitForLoading(room.waitForLoading);
-    this.setPanelState({ memberCount: room.memberCount ?? 0 });
+    this.lastRoom = room;
+    const participants = room.participants.map((participant) => toParticipantPanelState(
+      participant,
+      this.userId,
+      this.panelState.followUserId,
+      this.message("no_shared_video")
+    ));
+    this.setPanelState({
+      participantCount: room.participantCount,
+      participants,
+      roomCode: room.roomCode
+    });
+    this.saveState();
   }
 
-  private async getRoom(): Promise<Room> {
-    if (this.sessionToken === "") {
-      const joined = await this.apiClient.joinRoom({
-        name: this.panelState.roomName,
-        password: this.panelState.password,
-        userId: this.tempUser
+  private applyRoomSession(response: RoomSessionResponse, inviteCode = ""): void {
+    if (response.sessionToken) {
+      this.sessionToken = response.sessionToken;
+    }
+    if (response.inviteCode) {
+      this.inviteCode = response.inviteCode;
+    } else if (inviteCode !== "") {
+      this.inviteCode = inviteCode;
+    }
+    this.setPanelState({ inRoom: true, inviteCode: this.inviteCode });
+    this.applyRoomInfo(response.room);
+  }
+
+  private clearLocalRoomState(): void {
+    this.wsClient.disconnect();
+    this.sessionToken = "";
+    this.inviteCode = "";
+    this.lastRoom = null;
+    this.stateStore.clear();
+    this.setPanelState({
+      ...initialPanelState(this.message("global_notification"), this.panelState.nickname),
+      focusedVideo: this.videoRegistry.getFocusedVideoSummary()
+    });
+    this.updateFullscreenChip();
+  }
+
+  private async createRoomAsync(nickname: string): Promise<void> {
+    try {
+      const response = await this.apiClient.createRoom({
+        nickname,
+        userId: this.userId
       });
-      this.applyRoomSession(joined);
+      this.applyRoomSession(response);
+      this.updateStatus(this.message("room_created"), "success");
+      void this.scheduledTask();
+    } catch (error) {
+      this.handleActionError(error);
     }
-
-    this.wsClient.requestRoom({
-      name: this.panelState.roomName,
-      sessionToken: this.sessionToken
-    });
-    const wsRoom = this.wsClient.getRoom();
-    if (wsRoom) {
-      return wsRoom;
-    }
-
-    const response = await this.apiClient.getRoom({
-      name: this.panelState.roomName,
-      sessionToken: this.sessionToken
-    });
-    this.applyRoomSession(response);
-    return response.room;
   }
 
-  private getMainPageUrl(): string {
-    return linkWithoutState(window.location);
+  private async joinRoomAsync(inviteCode: string, nickname: string): Promise<void> {
+    try {
+      const response = await this.apiClient.joinRoom({
+        inviteCode,
+        nickname,
+        userId: this.userId
+      });
+      this.applyRoomSession(response, inviteCode);
+      this.updateStatus(this.message("room_joined"), "success");
+      void this.scheduledTask();
+    } catch (error) {
+      this.handleActionError(error);
+    }
   }
 
-  private async masterTask(): Promise<void> {
-    const video = this.videoRegistry.getVideoDom();
-    const pageUrl = this.getMainPageUrl();
-    this.url = pageUrl;
-    if (video === null) {
-      await this.updateRoom(pageUrl, 1, 0, true, 1e9, getLocalTimestamp(this.timeSync));
-      throw new Error(this.message("no_video_in_this_page"));
-    }
-
-    if (this.waitForLoading) {
-      if (!video.paused) {
-        video.pause();
-        this.playAfterLoading = true;
-      }
-    } else if (this.playAfterLoading) {
-      await video.play();
-      this.playAfterLoading = false;
-    }
-
-    const paused = isVideoLoaded(video) ? video.paused : true;
-    const room = await this.updateRoom(
-      pageUrl,
-      video.playbackRate,
-      video.currentTime,
-      paused,
-      Number.isFinite(video.duration) ? video.duration : 1e9,
-      getLocalTimestamp(this.timeSync)
-    );
-    this.applyRoomInfo(room);
-    this.saveState();
-    this.updateStatus(`${this.message("sync_success")} ${getDisplayTimeText()}`, "success");
+  private handleActionError(error: unknown): void {
+    const statusText = error instanceof Error ? error.message : String(error);
+    this.updateStatus(statusText, "danger");
   }
 
-  private async memberTask(): Promise<void> {
-    const room = await this.getRoom();
-    this.applyRoomInfo(room);
-    const nextUrl = room.url;
-    if (nextUrl && nextUrl !== this.url) {
-      window.location.href = linkWithMemberState(nextUrl, this.panelState.roomName, this.sessionToken, Role.Member).toString();
-      return;
-    }
-
-    this.url = nextUrl;
-    this.saveState();
-    const video = this.videoRegistry.getVideoDom();
-    if (video === null) {
-      throw new Error(this.message("no_video_in_this_page"));
-    }
-    await this.syncMemberVideo(room, video);
-  }
-
-  private message(key: LocaleKey): string {
-    return translate(this.language, key);
-  }
+  private message(key: LocaleKey): string { return translate(this.language, key); }
 
   private recoverState(): void {
     if (window.self !== window.top) {
@@ -229,9 +283,22 @@ export class VideoTogetherLiteController {
     }
 
     this.sessionToken = state.sessionToken;
-    this.url = state.url;
-    this.setPanelState({ inRoom: true, password: "", role: state.role, roomName: state.roomName });
+    this.setPanelState({
+      followUserId: state.followUserId,
+      inRoom: true,
+      roomCode: state.roomCode
+    });
     void this.scheduledTask();
+  }
+
+  private refreshFocusedVideo(): void {
+    this.setPanelState({ focusedVideo: this.videoRegistry.getFocusedVideoSummary() });
+  }
+
+  private saveState(followUserId = this.panelState.followUserId): void {
+    if (window.self === window.top && this.sessionToken !== "" && this.panelState.roomCode !== "") {
+      this.stateStore.save(this.panelState.roomCode, this.sessionToken, linkWithoutState(window.location), followUserId);
+    }
   }
 
   private async scheduledTask(scheduled = false): Promise<void> {
@@ -239,7 +306,8 @@ export class VideoTogetherLiteController {
       return;
     }
     this.lastScheduledTaskTs = Date.now() / 1000;
-    if (this.panelState.role === Role.Null) {
+    this.refreshFocusedVideo();
+    if (!this.panelState.inRoom || this.sessionToken === "") {
       return;
     }
 
@@ -253,32 +321,13 @@ export class VideoTogetherLiteController {
     }
 
     try {
-      if (this.panelState.role === Role.Master) {
-        await this.masterTask();
-      } else if (this.panelState.role === Role.Member) {
-        await this.memberTask();
-      }
+      const room = await this.updateCurrentParticipant();
+      this.applyRoomInfo(room);
+      await this.syncFollowTarget(room);
+      this.saveState();
+      this.updateStatus(`${this.message("sync_success")} ${getDisplayTimeText()}`, "success");
     } catch (error) {
-      this.handleScheduledTaskError(error);
-    }
-  }
-
-  private handleScheduledTaskError(error: unknown): void {
-    const statusText = error instanceof Error ? error.message : String(error);
-    if (this.sessionToken !== "") {
-      this.updateStatus(statusText, "danger");
-      return;
-    }
-
-    this.wsClient.disconnect();
-    this.waitForLoading = false;
-    this.playAfterLoading = false;
-    this.setPanelState({ inRoom: false, password: "", role: Role.Null, statusText, statusTone: "danger" });
-  }
-
-  private saveState(): void {
-    if (window.self === window.top && this.sessionToken !== "") {
-      this.stateStore.save(this.panelState.roomName, this.sessionToken, this.panelState.role, this.url);
+      this.handleActionError(error);
     }
   }
 
@@ -289,32 +338,18 @@ export class VideoTogetherLiteController {
     }
   }
 
-  private async syncMemberVideo(room: Room, video: HTMLVideoElement): Promise<void> {
-    await syncVideoToRoom(
+  private async syncFollowTarget(room: Room | null): Promise<void> {
+    await syncFollowTargetVideo({
+      followUserId: this.panelState.followUserId,
+      manualPlayMessage: this.message("need_to_play_manually"),
+      onStatus: (text, tone) => this.updateStatus(text, tone),
+      pickVideoToFollowMessage: this.message("please_pick_video_to_follow"),
       room,
-      video,
-      getLocalTimestamp(this.timeSync),
-      this.message("need_to_play_manually")
-    );
-    if (this.sessionToken === "") {
-      return;
-    }
-
-    const payload: MemberUpdatePayload = {
-      currentUrl: this.getMainPageUrl(),
-      isLoading: !isVideoLoaded(video),
-      roomName: this.panelState.roomName,
-      sendLocalTimestamp: Date.now() / 1000,
+      saveState: (followUserId) => this.saveState(followUserId),
       sessionToken: this.sessionToken,
-      userId: this.tempUser
-    };
-    if (this.wsClient.isOpen()) {
-      this.wsClient.updateMember(payload);
-    } else {
-      const response = await this.apiClient.updateMember(payload);
-      this.applyRoomSession(response);
-    }
-    this.updateStatus(`${this.message("sync_success")} ${getDisplayTimeText()}`, "success");
+      timeSync: this.timeSync,
+      videoRegistry: this.videoRegistry
+    });
   }
 
   private async syncTimeWithServer(): Promise<void> {
@@ -322,41 +357,32 @@ export class VideoTogetherLiteController {
     this.httpSucc = true;
   }
 
-  private async updateRoom(
-    url: string,
-    playbackRate: number,
-    currentTime: number,
-    paused: boolean,
-    duration: number,
-    localTimestamp: number
-  ): Promise<Room> {
-    const payload: HostUpdatePayload = {
-      currentTime,
-      duration,
-      lastUpdateClientTime: localTimestamp,
-      name: this.panelState.roomName,
-      paused,
-      playbackRate,
-      protected: isRoomProtected(),
-      sendLocalTimestamp: Date.now() / 1000,
-      url,
-      userId: this.tempUser,
-      videoTitle: document.title
-    };
-    if (this.sessionToken !== "") {
-      payload.sessionToken = this.sessionToken;
-      this.wsClient.updateRoom(payload);
-      const wsRoom = this.wsClient.getRoom();
-      if (wsRoom) {
-        return wsRoom;
-      }
-    } else {
-      payload.password = this.panelState.password;
-    }
+  private async updateCurrentParticipant(): Promise<Room> {
+    return updateParticipantRoom({
+      apiClient: this.apiClient,
+      applyRoomSession: (response) => this.applyRoomSession(response),
+      nickname: this.panelState.nickname,
+      onLostFocusedVideo: () => this.setPanelState({ focusedVideo: null, sharing: false }),
+      sessionToken: this.sessionToken,
+      sharing: this.panelState.sharing,
+      timeSync: this.timeSync,
+      videoRegistry: this.videoRegistry,
+      wsClient: this.wsClient
+    });
+  }
 
-    const response = await this.apiClient.updateRoom(payload);
-    this.applyRoomSession(response);
-    return response.room;
+  private updateFullscreenChip(): void {
+    this.fullscreenChip = updateFullscreenChip(
+      this.fullscreenChip,
+      this.videoRegistry.getVideoDom(),
+      getFullscreenChipLabels((key) => this.message(key)),
+      this.panelState.sharing,
+      {
+        onExitRoom: () => this.exitRoom(),
+        onOpenPanel: () => void document.exitFullscreen?.(),
+        onToggleSharing: () => this.setSharing(!this.panelState.sharing)
+      }
+    );
   }
 
   private updateStatus(statusText: string, statusTone: StatusTone): void {
@@ -365,29 +391,5 @@ export class VideoTogetherLiteController {
 
   private updateTimestampIfNeeded(serverTimestamp: number, startTime: number, endTime: number): void {
     this.timeSync = updateTimeSync(this.timeSync, serverTimestamp, startTime, endTime);
-  }
-
-  private enterRoom(name: string, password: string, role: Role): void {
-    this.setPanelState({ inRoom: true, password, role, roomName: name });
-    void this.scheduledTask();
-  }
-
-  private applyRoomSession(response: RoomSessionResponse): void {
-    if (response.sessionToken) {
-      this.setSessionToken(response.sessionToken);
-    }
-    this.applyRoomInfo(response.room);
-  }
-
-  private setSessionToken(sessionToken: string): void {
-    if (sessionToken === "" || sessionToken === this.sessionToken) {
-      return;
-    }
-    this.sessionToken = sessionToken;
-    this.saveState();
-  }
-
-  private setWaitForLoading(value: boolean): void {
-    this.waitForLoading = isWaitForLoadingEnabled() && value;
   }
 }

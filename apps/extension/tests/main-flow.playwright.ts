@@ -4,13 +4,16 @@ import {
   exitButton,
   expectNoPanel,
   expectVideoState,
-  fillLobby,
+  fillInvite,
+  fillNickname,
+  inviteCodeText,
   joinButton,
-  memberCount,
-  roleText,
+  participantCount,
+  pickVideoButton,
+  pickFirstVideo,
   setFixtureVideo,
-  statusText,
-  uniqueRoomName
+  shareToggle,
+  statusText
 } from "./helpers/panel";
 
 test("popup enable switch controls fixture injection", async ({ openFixture, openPopup }) => {
@@ -29,79 +32,74 @@ test("popup enable switch controls fixture injection", async ({ openFixture, ope
   await expect(enabledPage.locator("#videoTogetherLiteFlyPanel")).toBeVisible();
 });
 
-test("syncs host and member through the browser extension flow", async ({ openFixture }) => {
-  const roomName = uniqueRoomName("main-flow");
-  const password = "main-password";
-  const host = await openFixture("/host");
-  await setFixtureVideo(host, { currentTime: 12, paused: true, playbackRate: 1.25 });
-  await fillLobby(host, roomName, password);
-  await createButton(host).click();
+test("creates a participant room and follows an explicitly focused video", async ({ openFixture, openIsolatedFixture }) => {
+  const alice = await openFixture("/host");
+  await fillNickname(alice, "Alice");
+  await setFixtureVideo(alice, { currentTime: 12, paused: true, playbackRate: 1.25 });
+  await createButton(alice).click();
+  await expect(alice.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await pickFirstVideo(alice);
+  await shareToggle(alice).setChecked(true);
+  await expect(statusText(alice)).toContainText("Sync");
+  const inviteCode = await inviteCodeText(alice).innerText();
+  expect(inviteCode).toContain(".");
 
-  await expect(roleText(host)).toHaveText("Host");
-  await expect(statusText(host)).toContainText("Sync");
-  await expect(exitButton(host)).toBeVisible();
-
-  const member = await openFixture("/host");
-  await setFixtureVideo(member, { currentTime: 0, paused: true, playbackRate: 1 });
-  await fillLobby(member, roomName, password);
-  await joinButton(member).click();
-
-  await expect(roleText(member)).toHaveText("Member");
-  await expect(member.locator("#videoTogetherLiteRoomNameInput")).toHaveValue(roomName);
-  await expect(statusText(member)).toContainText("Sync");
-  await expect(memberCount(host)).toContainText("2");
-  await expectVideoState(member, {
+  const bob = await openIsolatedFixture("/host");
+  await fillNickname(bob, "Bob");
+  await setFixtureVideo(bob, { currentTime: 0, paused: true, playbackRate: 1 });
+  await fillInvite(bob, inviteCode);
+  await joinButton(bob).click();
+  await expect(bob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await pickFirstVideo(bob);
+  await bob.getByRole("button", { name: "Follow" }).click();
+  await expect(participantCount(alice)).toContainText("2");
+  await expectVideoState(bob, {
     currentTime: 12,
     paused: true,
     playbackRate: 1.25
   });
 
-  await setFixtureVideo(host, { currentTime: 42, paused: true, playbackRate: 1.5 });
-  await expectVideoState(member, {
+  await setFixtureVideo(alice, { currentTime: 42, paused: true, playbackRate: 1.5 });
+  await expectVideoState(bob, {
     currentTime: 42,
     paused: true,
     playbackRate: 1.5
   });
 
-  await setFixtureVideo(host, { currentTime: 44, paused: false, playbackRate: 1.5 });
-  await expectVideoState(member, {
+  await setFixtureVideo(alice, { currentTime: 44, paused: false, playbackRate: 1.5 });
+  await expectVideoState(bob, {
     paused: false,
     playbackRate: 1.5
   });
 
-  await setFixtureVideo(host, { currentTime: 52, paused: true, playbackRate: 1.5 });
-  await expectVideoState(member, {
-    paused: true,
-    playbackRate: 1.5
-  });
+  await bob.reload();
+  await expect(bob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
 
-  await member.reload();
-  await expect(roleText(member)).toHaveText("Member");
-  await expect(member.locator("#videoTogetherLiteRoomNameInput")).toHaveValue(roomName);
-
-  await exitButton(member).click();
-  await expect(createButton(member)).toBeVisible();
-  expect(await member.evaluate(() => sessionStorage.getItem("VideoTogetherLiteRoomName")))
+  await exitButton(bob).click();
+  await expect(createButton(bob)).toBeVisible();
+  expect(await bob.evaluate(() => sessionStorage.getItem("VideoTogetherLiteRoomCode")))
     .toBeNull();
 });
 
-test("shows browser-flow errors for wrong passwords and missing videos", async ({ openFixture }) => {
-  const roomName = uniqueRoomName("error-flow");
-  const password = "correct-password";
-  const host = await openFixture("/host");
-  await setFixtureVideo(host, { currentTime: 5, paused: true, playbackRate: 1 });
-  await fillLobby(host, roomName, password);
-  await createButton(host).click();
-  await expect(roleText(host)).toHaveText("Host");
+test("keeps focus explicit and reports invalid invite or missing videos", async ({ openFixture }) => {
+  const alice = await openFixture("/host");
+  await fillNickname(alice, "Alice");
+  await createButton(alice).click();
+  await expect(alice.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await shareToggle(alice).click();
+  await expect(statusText(alice)).toContainText("Pick a video before sharing");
+  const roomCode = (await inviteCodeText(alice).innerText()).split(".")[0]!;
 
-  const wrongPasswordMember = await openFixture("/member");
-  await fillLobby(wrongPasswordMember, roomName, "wrong-password");
-  await joinButton(wrongPasswordMember).click();
-  await expect(statusText(wrongPasswordMember)).toContainText("Wrong Password");
-  await expect(joinButton(wrongPasswordMember)).toBeVisible();
+  const bob = await openFixture("/member");
+  await fillNickname(bob, "Bob");
+  await fillInvite(bob, `${roomCode}.badsecret`);
+  await joinButton(bob).click();
+  await expect(statusText(bob)).toContainText("Wrong invite code");
+  await expect(joinButton(bob)).toBeVisible();
 
   const noVideo = await openFixture("/no-video");
-  await fillLobby(noVideo, uniqueRoomName("no-video"), "no-video-password");
+  await fillNickname(noVideo, "No Video");
   await createButton(noVideo).click();
-  await expect(statusText(noVideo)).toContainText("No video in this page");
+  await pickVideoButton(noVideo).click();
+  await expect(statusText(noVideo)).toContainText("No videos found");
 });

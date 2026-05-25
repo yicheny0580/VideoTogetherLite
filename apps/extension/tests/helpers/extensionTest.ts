@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { startFixtureServer, type FixtureServer } from "./fixtureServer";
 
 type OpenFixture = (pathname?: string, options?: { waitForPanel?: boolean }) => Promise<Page>;
+type OpenIsolatedFixture = (pathname?: string, options?: { waitForPanel?: boolean }) => Promise<Page>;
 type OpenPopup = () => Promise<Page>;
 
 interface ExtensionFixtures {
@@ -14,12 +15,18 @@ interface ExtensionFixtures {
   extensionId: string;
   fixtureServer: FixtureServer;
   openFixture: OpenFixture;
+  openIsolatedFixture: OpenIsolatedFixture;
   openPopup: OpenPopup;
 }
 
 const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const extensionPath = resolve(extensionRoot, "dist");
 const extensionManifest = resolve(extensionPath, "manifest.json");
+const extensionLaunchArgs = [
+  `--disable-extensions-except=${extensionPath}`,
+  `--load-extension=${extensionPath}`,
+  "--no-sandbox"
+];
 
 export const test = base.extend<ExtensionFixtures>({
   extensionContext: async ({ browserName: _browserName }, runFixture) => {
@@ -28,11 +35,7 @@ export const test = base.extend<ExtensionFixtures>({
     let context: BrowserContext | undefined;
     try {
       context = await chromium.launchPersistentContext(userDataDir, {
-        args: [
-          `--disable-extensions-except=${extensionPath}`,
-          `--load-extension=${extensionPath}`,
-          "--no-sandbox"
-        ],
+        args: extensionLaunchArgs,
         channel: "chromium",
         headless: true
       });
@@ -71,6 +74,32 @@ export const test = base.extend<ExtensionFixtures>({
       }
       return page;
     });
+  },
+
+  openIsolatedFixture: async ({ fixtureServer }, runFixture) => {
+    const opened: Array<{ context: BrowserContext; userDataDir: string }> = [];
+    try {
+      await runFixture(async (pathname = "/host", options = {}) => {
+        const userDataDir = await mkdtemp(join(tmpdir(), "videotogetherlite-e2e-isolated-"));
+        const context = await chromium.launchPersistentContext(userDataDir, {
+          args: extensionLaunchArgs,
+          channel: "chromium",
+          headless: true
+        });
+        opened.push({ context, userDataDir });
+        const page = await context.newPage();
+        await page.goto(fixtureServer.url(pathname));
+        if (options.waitForPanel !== false) {
+          await expect(page.locator("#videoTogetherLiteFlyPanel")).toBeVisible();
+        }
+        return page;
+      });
+    } finally {
+      await Promise.all(opened.map(async ({ context, userDataDir }) => {
+        await context.close().catch(() => undefined);
+        await rm(userDataDir, { force: true, recursive: true });
+      }));
+    }
   },
 
   openPopup: async ({ extensionContext, extensionId }, runFixture) => {

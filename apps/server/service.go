@@ -6,23 +6,21 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-type sessionRole string
-
-const (
-	sessionRoleHost   sessionRole = "host"
-	sessionRoleMember sessionRole = "member"
-)
+const inviteCodeSeparator = "."
 
 type VideoTogetherLiteService struct {
 	mu             sync.Mutex
 	rooms          map[string]*roomRecord
 	sessions       map[string]*sessionRecord
+	userRooms      map[string]string
 	roomExpireTime time.Duration
 }
 
@@ -30,6 +28,7 @@ func NewVideoTogetherLiteService(roomExpireTime time.Duration) *VideoTogetherLit
 	return &VideoTogetherLiteService{
 		rooms:          map[string]*roomRecord{},
 		sessions:       map[string]*sessionRecord{},
+		userRooms:      map[string]string{},
 		roomExpireTime: roomExpireTime,
 	}
 }
@@ -42,108 +41,166 @@ func (s *VideoTogetherLiteService) Timestamp() float64 {
 	return Timestamp()
 }
 
-type Room struct {
-	BeginLoadingTimestamp float64 `json:"beginLoadingTimestamp"`
-	CurrentTime           float64 `json:"currentTime"`
-	Duration              float64 `json:"duration"`
-	LastUpdateClientTime  float64 `json:"lastUpdateClientTime"`
-	LastUpdateServerTime  float64 `json:"lastUpdateServerTime"`
-	MemberCount           int     `json:"memberCount"`
-	Name                  string  `json:"name"`
-	Paused                bool    `json:"paused"`
-	PlaybackRate          float64 `json:"playbackRate"`
-	Protected             bool    `json:"protected"`
-	URL                   string  `json:"url"`
-	UUID                  string  `json:"uuid"`
-	VideoTitle            string  `json:"videoTitle"`
-	WaitForLoading        bool    `json:"waitForLoading"`
+type SharedVideoState struct {
+	CurrentTime          float64 `json:"currentTime"`
+	Duration             float64 `json:"duration"`
+	IsLoading            bool    `json:"isLoading"`
+	LastUpdateClientTime float64 `json:"lastUpdateClientTime"`
+	LastUpdateServerTime float64 `json:"lastUpdateServerTime"`
+	Paused               bool    `json:"paused"`
+	PlaybackRate         float64 `json:"playbackRate"`
+	Title                string  `json:"title"`
+	URL                  string  `json:"url"`
 }
 
-type Member struct {
-	CurrentURL          string `json:"currentUrl"`
-	IsLoading           bool   `json:"isLoading"`
-	UserID              string `json:"userId"`
-	lastUpdateTimestamp float64
+type RoomParticipant struct {
+	FocusedVideo       *SharedVideoState `json:"focusedVideo,omitempty"`
+	LastSeenServerTime float64           `json:"lastSeenServerTime"`
+	Nickname           string            `json:"nickname"`
+	Sharing            bool              `json:"sharing"`
+	UserID             string            `json:"userId"`
+}
+
+type Room struct {
+	ParticipantCount int               `json:"participantCount"`
+	Participants     []RoomParticipant `json:"participants"`
+	RoomCode         string            `json:"roomCode"`
+	UUID             string            `json:"uuid"`
 }
 
 type roomRecord struct {
-	room         Room
-	passwordHash string
-	hostID       string
-	members      map[string]*Member
-	userIDs      map[string]bool
+	inviteSecretHash string
+	participants     map[string]*RoomParticipant
+	room             Room
 }
 
 type sessionRecord struct {
 	lastSeen float64
-	role     sessionRole
-	roomName string
+	roomCode string
 	userID   string
 }
 
-type JoinRoomInput struct {
-	Password string
-	RoomName string
+type CreateRoomInput struct {
+	Nickname string
 	UserID   string
 }
 
-type GetRoomInput struct {
-	RoomName     string
-	SessionToken string
-}
-
-type HostUpdateInput struct {
-	CurrentTime          float64
-	Duration             float64
-	LastUpdateClientTime float64
-	Password             string
-	Paused               bool
-	PlaybackRate         float64
-	Protected            bool
-	RoomName             string
-	SessionToken         string
-	URL                  string
-	UserID               string
-	VideoTitle           string
-}
-
-type MemberUpdateInput struct {
-	CurrentURL   string
-	IsLoading    bool
-	RoomName     string
-	SessionToken string
+type JoinRoomInput struct {
+	InviteCode   string
+	InviteSecret string
+	Nickname     string
+	RoomCode     string
 	UserID       string
 }
 
+type GetRoomInput struct {
+	SessionToken string
+}
+
+type LeaveRoomInput struct {
+	SessionToken string
+}
+
+type UpdateRoomInput struct {
+	FocusedVideo  *SharedVideoState
+	Nickname      string
+	SendLocalTime float64
+	SessionToken  string
+	Sharing       bool
+}
+
 type RoomSessionResult struct {
+	InviteCode   string
+	InviteSecret string
 	Room         Room
 	SessionToken string
 	Timestamp    float64
+}
+
+func (s *VideoTogetherLiteService) CreateRoom(_ *VideoTogetherLiteContext, input CreateRoomInput) (RoomSessionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	userID := normalizeUserID(input.UserID)
+	nickname := normalizeNickname(input.Nickname)
+	now := s.Timestamp()
+	s.removeUserFromActiveRoomLocked(userID, now)
+
+	roomCode, err := s.createRoomCodeLocked()
+	if err != nil {
+		return RoomSessionResult{}, err
+	}
+	inviteSecret, err := randomSecret()
+	if err != nil {
+		return RoomSessionResult{}, err
+	}
+	room := &roomRecord{
+		inviteSecretHash: hashSecret(inviteSecret),
+		participants:     map[string]*RoomParticipant{},
+		room: Room{
+			RoomCode: roomCode,
+			UUID:     uuid.NewString(),
+		},
+	}
+	s.rooms[roomCode] = room
+	room.upsertParticipant(userID, nickname, now)
+	s.userRooms[userID] = roomCode
+
+	token, err := s.createSessionLocked(roomCode, userID)
+	if err != nil {
+		return RoomSessionResult{}, err
+	}
+
+	return RoomSessionResult{
+		InviteCode:   formatInviteCode(roomCode, inviteSecret),
+		InviteSecret: inviteSecret,
+		Room:         room.snapshot(now),
+		SessionToken: token,
+		Timestamp:    now,
+	}, nil
 }
 
 func (s *VideoTogetherLiteService) JoinRoom(ctx *VideoTogetherLiteContext, input JoinRoomInput) (RoomSessionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	room := s.queryRoomLocked(input.RoomName)
+	roomCode, inviteSecret := normalizeInvite(input)
+	if roomCode == "" || inviteSecret == "" {
+		return RoomSessionResult{}, newAppError(errInvalidRequest, "invite code is required")
+	}
+
+	room := s.queryRoomLocked(roomCode)
 	if room == nil {
 		return RoomSessionResult{}, newAppError(errRoomNotFound, GetErrorMessage(ctx.Language).RoomNotExist)
 	}
-	if !room.hasAccess(hashPassword(input.Password)) {
-		return RoomSessionResult{}, newAppError(errWrongPassword, GetErrorMessage(ctx.Language).WrongPassword)
+	if room.inviteSecretHash != hashSecret(inviteSecret) {
+		return RoomSessionResult{}, newAppError(errWrongInviteSecret, GetErrorMessage(ctx.Language).WrongInviteSecret)
 	}
 
 	userID := normalizeUserID(input.UserID)
-	token, err := s.createSessionLocked(input.RoomName, userID, sessionRoleMember)
+	nickname := normalizeNickname(input.Nickname)
+	now := s.Timestamp()
+	if s.userRooms[userID] != roomCode {
+		s.removeUserFromActiveRoomLocked(userID, now)
+		room = s.queryRoomLocked(roomCode)
+		if room == nil {
+			return RoomSessionResult{}, newAppError(errRoomNotFound, GetErrorMessage(ctx.Language).RoomNotExist)
+		}
+	} else {
+		s.deleteUserSessionsLocked(userID)
+	}
+	room.upsertParticipant(userID, nickname, now)
+	s.userRooms[userID] = roomCode
+
+	token, err := s.createSessionLocked(roomCode, userID)
 	if err != nil {
 		return RoomSessionResult{}, err
 	}
-	room.userIDs[userID] = true
 
 	return RoomSessionResult{
-		Room:         room.snapshot(s.Timestamp()),
+		Room:         room.snapshot(now),
 		SessionToken: token,
-		Timestamp:    s.Timestamp(),
+		Timestamp:    now,
 	}, nil
 }
 
@@ -151,14 +208,15 @@ func (s *VideoTogetherLiteService) GetRoom(ctx *VideoTogetherLiteContext, input 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	session, err := s.authenticateLocked(input.RoomName, input.SessionToken, sessionRoleHost, sessionRoleMember)
+	session, err := s.authenticateLocked(input.SessionToken)
 	if err != nil {
 		return RoomSessionResult{}, localizeAuthError(ctx, err)
 	}
-	room := s.queryRoomLocked(session.roomName)
+	room := s.queryRoomLocked(session.roomCode)
 	if room == nil {
 		return RoomSessionResult{}, newAppError(errRoomNotFound, GetErrorMessage(ctx.Language).RoomNotExist)
 	}
+	room.touchParticipant(session.userID, s.Timestamp())
 
 	return RoomSessionResult{
 		Room:      room.snapshot(s.Timestamp()),
@@ -166,230 +224,252 @@ func (s *VideoTogetherLiteService) GetRoom(ctx *VideoTogetherLiteContext, input 
 	}, nil
 }
 
-func (s *VideoTogetherLiteService) HostUpdateRoom(ctx *VideoTogetherLiteContext, input HostUpdateInput) (RoomSessionResult, error) {
+func (s *VideoTogetherLiteService) LeaveRoom(ctx *VideoTogetherLiteContext, input LeaveRoomInput) (RoomSessionResult, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	roomName := input.RoomName
-	userID := normalizeUserID(input.UserID)
-	var sessionToken string
-
-	if input.SessionToken != "" {
-		session, err := s.authenticateLocked(roomName, input.SessionToken, sessionRoleHost)
-		if err != nil {
-			return RoomSessionResult{}, localizeAuthError(ctx, err)
-		}
-		userID = session.userID
-		roomName = session.roomName
-	} else {
-		room := s.queryRoomLocked(roomName)
-		passwordHash := hashPassword(input.Password)
-		if room == nil {
-			room = s.createRoomLocked(roomName, passwordHash, userID)
-		}
-		if room.passwordHash != passwordHash {
-			return RoomSessionResult{}, newAppError(errWrongPassword, GetErrorMessage(ctx.Language).HostWrongPassword)
-		}
-		room.hostID = userID
-		room.userIDs[userID] = true
-		s.invalidateHostSessionsLocked(roomName)
-		token, err := s.createSessionLocked(roomName, userID, sessionRoleHost)
-		if err != nil {
-			return RoomSessionResult{}, err
-		}
-		sessionToken = token
-	}
-
-	room := s.queryRoomLocked(roomName)
-	if room == nil {
-		return RoomSessionResult{}, newAppError(errRoomNotFound, GetErrorMessage(ctx.Language).RoomNotExist)
-	}
-	room.applyHostUpdate(input, userID, s.Timestamp())
-
-	return RoomSessionResult{
-		Room:         room.snapshot(s.Timestamp()),
-		SessionToken: sessionToken,
-		Timestamp:    s.Timestamp(),
-	}, nil
-}
-
-func (s *VideoTogetherLiteService) UpdateMember(ctx *VideoTogetherLiteContext, input MemberUpdateInput) (RoomSessionResult, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	session, err := s.authenticateLocked(input.RoomName, input.SessionToken, sessionRoleMember)
+	session, err := s.authenticateLocked(input.SessionToken)
 	if err != nil {
 		return RoomSessionResult{}, false, localizeAuthError(ctx, err)
 	}
-	room := s.queryRoomLocked(session.roomName)
+
+	roomCode := session.roomCode
+	deleted := s.removeUserFromRoomLocked(session.userID, roomCode, s.Timestamp())
+	if deleted {
+		return RoomSessionResult{Timestamp: s.Timestamp()}, true, nil
+	}
+
+	room := s.queryRoomLocked(roomCode)
 	if room == nil {
-		return RoomSessionResult{}, false, newAppError(errRoomNotFound, GetErrorMessage(ctx.Language).RoomNotExist)
+		return RoomSessionResult{Timestamp: s.Timestamp()}, true, nil
 	}
-	userID := input.UserID
-	if userID == "" {
-		userID = session.userID
-	}
-
-	changed := room.updateMember(Member{
-		CurrentURL: input.CurrentURL,
-		IsLoading:  input.IsLoading,
-		UserID:     normalizeUserID(userID),
-	}, s.Timestamp())
-
 	return RoomSessionResult{
 		Room:      room.snapshot(s.Timestamp()),
 		Timestamp: s.Timestamp(),
-	}, changed, nil
+	}, false, nil
+}
+
+func (s *VideoTogetherLiteService) UpdateRoom(ctx *VideoTogetherLiteContext, input UpdateRoomInput) (RoomSessionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	session, err := s.authenticateLocked(input.SessionToken)
+	if err != nil {
+		return RoomSessionResult{}, localizeAuthError(ctx, err)
+	}
+	room := s.queryRoomLocked(session.roomCode)
+	if room == nil {
+		return RoomSessionResult{}, newAppError(errRoomNotFound, GetErrorMessage(ctx.Language).RoomNotExist)
+	}
+
+	now := s.Timestamp()
+	participant := room.upsertParticipant(session.userID, input.Nickname, now)
+	participant.Sharing = input.Sharing
+	if input.Sharing && input.FocusedVideo != nil {
+		next := *input.FocusedVideo
+		next.LastUpdateServerTime = now
+		participant.FocusedVideo = &next
+	} else {
+		participant.FocusedVideo = nil
+	}
+	session.lastSeen = now
+
+	return RoomSessionResult{
+		Room:      room.snapshot(now),
+		Timestamp: now,
+	}, nil
 }
 
 func (s *VideoTogetherLiteService) RemoveExpiredRooms() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	expireTime := float64(time.Now().Add(-s.roomExpireTime).UnixMilli()) / 1000
-	for name, room := range s.rooms {
-		if room.room.LastUpdateClientTime < expireTime {
-			delete(s.rooms, name)
-			for tokenHash, session := range s.sessions {
-				if session.roomName == name {
-					delete(s.sessions, tokenHash)
-				}
-			}
-		}
+	now := s.Timestamp()
+	for roomCode, room := range s.rooms {
+		s.cleanupRoomLocked(roomCode, room, now)
 	}
 }
 
-func (s *VideoTogetherLiteService) RoomExists(name string) bool {
+func (s *VideoTogetherLiteService) RoomExists(roomCode string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.queryRoomLocked(name) != nil
+	return s.queryRoomLocked(roomCode) != nil
 }
 
-func (s *VideoTogetherLiteService) queryRoomLocked(name string) *roomRecord {
-	room := s.rooms[name]
+func (s *VideoTogetherLiteService) queryRoomLocked(roomCode string) *roomRecord {
+	room := s.rooms[roomCode]
 	if room == nil {
 		return nil
 	}
-	room.updateMemberData(s.Timestamp())
+	if s.cleanupRoomLocked(roomCode, room, s.Timestamp()) {
+		return nil
+	}
 	return room
 }
 
-func (s *VideoTogetherLiteService) createRoomLocked(name, passwordHash, hostID string) *roomRecord {
-	room := &roomRecord{
-		room: Room{
-			Duration:             1e9,
-			LastUpdateClientTime: s.Timestamp(),
-			Name:                 name,
-			UUID:                 uuid.NewString(),
-		},
-		passwordHash: passwordHash,
-		hostID:       hostID,
-		members:      map[string]*Member{},
-		userIDs:      map[string]bool{},
+func (s *VideoTogetherLiteService) cleanupRoomLocked(roomCode string, room *roomRecord, now float64) bool {
+	expireBefore := now - s.roomExpireTime.Seconds()
+	for userID, participant := range room.participants {
+		if participant.LastSeenServerTime < expireBefore {
+			delete(room.participants, userID)
+			delete(s.userRooms, userID)
+			s.deleteUserSessionsLocked(userID)
+		}
 	}
-	s.rooms[name] = room
-	return room
+	if len(room.participants) == 0 {
+		delete(s.rooms, roomCode)
+		for tokenHash, session := range s.sessions {
+			if session.roomCode == roomCode {
+				delete(s.sessions, tokenHash)
+			}
+		}
+		return true
+	}
+	return false
 }
 
-func (s *VideoTogetherLiteService) authenticateLocked(roomName, token string, roles ...sessionRole) (*sessionRecord, error) {
-	if roomName == "" {
-		return nil, newAppError(errInvalidRequest, "roomName is required")
+func (s *VideoTogetherLiteService) createRoomCodeLocked() (string, error) {
+	for i := 0; i < 10; i++ {
+		roomCode, err := randomRoomCode()
+		if err != nil {
+			return "", err
+		}
+		if s.rooms[roomCode] == nil {
+			return roomCode, nil
+		}
 	}
+	return uuid.NewString(), nil
+}
+
+func (s *VideoTogetherLiteService) authenticateLocked(token string) (*sessionRecord, error) {
 	if token == "" {
 		return nil, newAppError(errUnauthorized, "sessionToken is required")
 	}
 	session := s.sessions[hashToken(token)]
-	if session == nil || session.roomName != roomName {
+	if session == nil {
 		return nil, newAppError(errUnauthorized, "invalid session token")
-	}
-	if !roleAllowed(session.role, roles) {
-		return nil, newAppError(errForbidden, "session token is not allowed for this action")
 	}
 	session.lastSeen = s.Timestamp()
 	return session, nil
 }
 
-func (s *VideoTogetherLiteService) createSessionLocked(roomName, userID string, role sessionRole) (string, error) {
+func (s *VideoTogetherLiteService) createSessionLocked(roomCode, userID string) (string, error) {
 	token, err := randomToken()
 	if err != nil {
 		return "", err
 	}
+	s.deleteUserSessionsLocked(userID)
 	s.sessions[hashToken(token)] = &sessionRecord{
 		lastSeen: s.Timestamp(),
-		role:     role,
-		roomName: roomName,
+		roomCode: roomCode,
 		userID:   userID,
 	}
 	return token, nil
 }
 
-func (s *VideoTogetherLiteService) invalidateHostSessionsLocked(roomName string) {
+func (s *VideoTogetherLiteService) deleteUserSessionsLocked(userID string) {
 	for tokenHash, session := range s.sessions {
-		if session.roomName == roomName && session.role == sessionRoleHost {
+		if session.userID == userID {
 			delete(s.sessions, tokenHash)
 		}
 	}
 }
 
-func (r *roomRecord) applyHostUpdate(input HostUpdateInput, userID string, serverTime float64) {
-	r.hostID = userID
-	r.userIDs[userID] = true
-	r.room.CurrentTime = input.CurrentTime
-	r.room.Duration = input.Duration
-	r.room.LastUpdateClientTime = input.LastUpdateClientTime
-	r.room.LastUpdateServerTime = serverTime
-	r.room.Paused = input.Paused
-	r.room.PlaybackRate = input.PlaybackRate
-	r.room.Protected = input.Protected
-	r.room.URL = input.URL
-	r.room.VideoTitle = input.VideoTitle
-	r.updateMemberData(serverTime)
-}
-
-func (r *roomRecord) hasAccess(passwordHash string) bool {
-	return !r.room.Protected || r.passwordHash == passwordHash
-}
-
-func (r *roomRecord) snapshot(now float64) Room {
-	r.updateMemberData(now)
-	if r.room.WaitForLoading {
-		if r.room.BeginLoadingTimestamp == 0 {
-			r.room.BeginLoadingTimestamp = now
-		}
-	} else {
-		r.room.BeginLoadingTimestamp = 0
+func (s *VideoTogetherLiteService) removeUserFromActiveRoomLocked(userID string, now float64) {
+	roomCode := s.userRooms[userID]
+	if roomCode == "" {
+		s.deleteUserSessionsLocked(userID)
+		return
 	}
+	s.removeUserFromRoomLocked(userID, roomCode, now)
+}
+
+func (s *VideoTogetherLiteService) removeUserFromRoomLocked(userID, roomCode string, now float64) bool {
+	room := s.rooms[roomCode]
+	if room != nil {
+		delete(room.participants, userID)
+	}
+	delete(s.userRooms, userID)
+	s.deleteUserSessionsLocked(userID)
+	if room == nil {
+		return true
+	}
+	return s.cleanupRoomLocked(roomCode, room, now)
+}
+
+func (r *roomRecord) snapshot(_ float64) Room {
+	participants := make([]RoomParticipant, 0, len(r.participants))
+	for _, participant := range r.participants {
+		if participant == nil {
+			continue
+		}
+		copyParticipant := *participant
+		if participant.FocusedVideo != nil {
+			videoCopy := *participant.FocusedVideo
+			copyParticipant.FocusedVideo = &videoCopy
+		}
+		participants = append(participants, copyParticipant)
+	}
+	sort.Slice(participants, func(i, j int) bool {
+		if participants[i].Nickname == participants[j].Nickname {
+			return participants[i].UserID < participants[j].UserID
+		}
+		return participants[i].Nickname < participants[j].Nickname
+	})
+	r.room.Participants = participants
+	r.room.ParticipantCount = len(participants)
 	return r.room
 }
 
-func (r *roomRecord) updateMember(m Member, now float64) bool {
-	m.lastUpdateTimestamp = now
-	r.members[m.UserID] = &m
-	memberCount := r.room.MemberCount
-	loading := r.room.WaitForLoading
-	r.updateMemberData(now)
-	return memberCount != r.room.MemberCount || loading != r.room.WaitForLoading
+func (r *roomRecord) touchParticipant(userID string, now float64) {
+	participant := r.participants[userID]
+	if participant == nil {
+		return
+	}
+	participant.LastSeenServerTime = now
 }
 
-func (r *roomRecord) updateMemberData(now float64) {
-	count := 0
-	waitForLoading := false
-	for _, member := range r.members {
-		if member != nil && member.isJoined(r.room.URL, now) {
-			count++
-			waitForLoading = waitForLoading || member.IsLoading
+func (r *roomRecord) upsertParticipant(userID, nickname string, now float64) *RoomParticipant {
+	participant := r.participants[userID]
+	if participant == nil {
+		participant = &RoomParticipant{
+			UserID: userID,
+		}
+		r.participants[userID] = participant
+	}
+	if nickname != "" {
+		participant.Nickname = normalizeNickname(nickname)
+	}
+	if participant.Nickname == "" {
+		participant.Nickname = normalizeNickname("")
+	}
+	participant.LastSeenServerTime = now
+	return participant
+}
+
+func normalizeInvite(input JoinRoomInput) (string, string) {
+	roomCode := strings.TrimSpace(input.RoomCode)
+	inviteSecret := strings.TrimSpace(input.InviteSecret)
+	inviteCode := strings.TrimSpace(input.InviteCode)
+	if inviteCode != "" {
+		parts := strings.SplitN(inviteCode, inviteCodeSeparator, 2)
+		if len(parts) == 2 {
+			roomCode = strings.TrimSpace(parts[0])
+			inviteSecret = strings.TrimSpace(parts[1])
 		}
 	}
-	waitForLoading = waitForLoading && r.room.Duration != r.room.CurrentTime
-	if r.room.LastUpdateServerTime+10 > now {
-		count++
-	}
-	r.room.MemberCount = count
-	r.room.WaitForLoading = waitForLoading
+	return strings.ToUpper(roomCode), inviteSecret
 }
 
-func (m *Member) isJoined(roomURL string, now float64) bool {
-	return m.lastUpdateTimestamp+10 > now && m.CurrentURL == roomURL
+func normalizeNickname(nickname string) string {
+	nickname = strings.TrimSpace(nickname)
+	if nickname == "" {
+		return "Viewer"
+	}
+	if len(nickname) > 40 {
+		return nickname[:40]
+	}
+	return nickname
 }
 
 func normalizeUserID(userID string) string {
@@ -399,13 +479,29 @@ func normalizeUserID(userID string) string {
 	return uuid.NewString()
 }
 
-func roleAllowed(role sessionRole, roles []sessionRole) bool {
-	for _, candidate := range roles {
-		if role == candidate {
-			return true
-		}
+func formatInviteCode(roomCode, inviteSecret string) string {
+	return roomCode + inviteCodeSeparator + inviteSecret
+}
+
+func randomRoomCode() (string, error) {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", err
 	}
-	return false
+	out := make([]byte, len(bytes))
+	for i, b := range bytes {
+		out[i] = alphabet[int(b)%len(alphabet)]
+	}
+	return string(out), nil
+}
+
+func randomSecret() (string, error) {
+	token := make([]byte, 16)
+	if _, err := rand.Read(token); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(token), nil
 }
 
 func randomToken() (string, error) {
@@ -416,8 +512,8 @@ func randomToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(token), nil
 }
 
-func hashPassword(password string) string {
-	sum := sha256.Sum256([]byte(password))
+func hashSecret(secret string) string {
+	sum := sha256.Sum256([]byte(secret))
 	return hex.EncodeToString(sum[:])
 }
 

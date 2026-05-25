@@ -11,11 +11,11 @@ function postMessageToSelf(type: number, data: unknown): void {
   }, "*");
 }
 
-function getLanguageFromScriptUrl(): string | null {
+function getParamFromScriptUrl(name: string): string {
   try {
-    return new URL(import.meta.url).searchParams.get("language");
+    return new URL(import.meta.url).searchParams.get(name) ?? "";
   } catch {
-    return null;
+    return "";
   }
 }
 
@@ -24,8 +24,12 @@ if (!window.VideoTogetherLiteLoading) {
 
   try {
     if (window.videoTogetherLiteExtension === undefined) {
-      const language = resolveLanguage(getLanguageFromScriptUrl() ?? navigator.language);
-      const controller = new VideoTogetherLiteController(language);
+      const language = resolveLanguage(getParamFromScriptUrl("language") || navigator.language);
+      const controller = new VideoTogetherLiteController(
+        language,
+        getParamFromScriptUrl("userId"),
+        getParamFromScriptUrl("nickname")
+      );
       window.videoTogetherLiteExtension = controller;
       mountFloatingPanel(controller, language);
       controller.start();

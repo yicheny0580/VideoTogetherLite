@@ -19,236 +19,215 @@ func newTestServer() (*httptest.Server, *VideoTogetherLiteService) {
 	return httptest.NewServer(api), liteService
 }
 
-func TestHostUpdateAndGetWithToken(t *testing.T) {
+func TestCreateJoinAndGetWithInviteCode(t *testing.T) {
 	server, _ := newTestServer()
 	defer server.Close()
 
-	created := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
-		CurrentTime:          12.5,
-		Duration:             600,
-		LastUpdateClientTime: 100,
-		Name:                 "room-a",
-		Password:             "pw",
-		Paused:               false,
-		PlaybackRate:         1.25,
-		Protected:            true,
-		URL:                  "https://example.test/watch",
-		UserID:               "host-1",
-		VideoTitle:           "Example",
+	created := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/create", createRoomRequest{
+		Nickname: "Alice",
+		UserID:   "user-1",
 	}, http.StatusOK)
 
-	if created.SessionToken == "" {
-		t.Fatal("expected host session token")
+	if created.SessionToken == "" || created.InviteCode == "" || created.InviteSecret == "" {
+		t.Fatalf("expected session and invite data: %+v", created)
 	}
-	if created.Room.Name != "room-a" || created.Room.CurrentTime != 12.5 || created.Room.Paused {
-		t.Fatalf("unexpected updated room: %+v", created.Room)
+	if created.Room.ParticipantCount != 1 || created.Room.Participants[0].Nickname != "Alice" {
+		t.Fatalf("unexpected created room: %+v", created.Room)
 	}
-	if created.Room.URL != "https://example.test/watch" || !created.Room.Protected {
-		t.Fatalf("room URL/protection not stored: %+v", created.Room)
+
+	joined := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/join", joinRoomRequest{
+		InviteCode: created.InviteCode,
+		Nickname:   "Bob",
+		UserID:     "user-2",
+	}, http.StatusOK)
+	if joined.Room.RoomCode != created.Room.RoomCode || joined.Room.ParticipantCount != 2 {
+		t.Fatalf("unexpected joined room: %+v", joined.Room)
 	}
 
 	got := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/get", getRoomRequest{
-		Name:         "room-a",
-		SessionToken: created.SessionToken,
+		SessionToken: joined.SessionToken,
 	}, http.StatusOK)
-	if got.Room.Name != "room-a" || got.Room.PlaybackRate != 1.25 {
-		t.Fatalf("unexpected fetched room: %+v", got.Room)
-	}
-	if got.SessionToken != "" {
-		t.Fatalf("get should not rotate token, got %q", got.SessionToken)
+	if got.Room.ParticipantCount != 2 || got.SessionToken != "" {
+		t.Fatalf("unexpected fetched room: %+v", got)
 	}
 }
 
-func TestProtectedRoomRejectsWrongPassword(t *testing.T) {
+func TestJoinRejectsWrongInviteSecret(t *testing.T) {
 	server, _ := newTestServer()
 	defer server.Close()
 
-	postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
-		CurrentTime:          0,
-		Duration:             100,
-		LastUpdateClientTime: 1,
-		Name:                 "room-b",
-		Password:             "pw",
-		Paused:               true,
-		PlaybackRate:         1,
-		Protected:            true,
-		URL:                  "https://example.test",
-		UserID:               "host-1",
+	created := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/create", createRoomRequest{
+		Nickname: "Alice",
+		UserID:   "user-1",
 	}, http.StatusOK)
 
 	body := postJSON[ErrorEnvelope](t, server, "/api/v1/rooms/join", joinRoomRequest{
-		Name:     "room-b",
-		Password: "wrong",
-		UserID:   "member-1",
+		InviteSecret: "wrong",
+		Nickname:     "Bob",
+		RoomCode:     created.Room.RoomCode,
+		UserID:       "user-2",
 	}, http.StatusUnauthorized)
-	if body.Error.Code != errWrongPassword || body.Error.Message != GetErrorMessage("").WrongPassword {
+	if body.Error.Code != errWrongInviteSecret || body.Error.Message != GetErrorMessage("").WrongInviteSecret {
 		t.Fatalf("unexpected error: %+v", body.Error)
 	}
 }
 
-func TestHostClaimInvalidatesOldHostToken(t *testing.T) {
+func TestUserCanOnlyBeInOneRoom(t *testing.T) {
 	server, _ := newTestServer()
 	defer server.Close()
 
-	first := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
-		CurrentTime:          1,
-		Duration:             100,
-		LastUpdateClientTime: 1,
-		Name:                 "room-c",
-		Password:             "pw",
-		Paused:               true,
-		PlaybackRate:         1,
-		Protected:            true,
-		URL:                  "https://example.test",
-		UserID:               "host-1",
+	first := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/create", createRoomRequest{
+		Nickname: "Alice",
+		UserID:   "user-1",
 	}, http.StatusOK)
-	second := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
-		CurrentTime:          2,
-		Duration:             100,
-		LastUpdateClientTime: 2,
-		Name:                 "room-c",
-		Password:             "pw",
-		Paused:               false,
-		PlaybackRate:         1,
-		Protected:            true,
-		URL:                  "https://example.test",
-		UserID:               "host-2",
+	second := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/create", createRoomRequest{
+		Nickname: "Alice",
+		UserID:   "user-1",
 	}, http.StatusOK)
 
-	postJSON[ErrorEnvelope](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
-		CurrentTime:          3,
-		Duration:             100,
-		LastUpdateClientTime: 3,
-		Name:                 "room-c",
-		Paused:               false,
-		PlaybackRate:         1,
-		Protected:            true,
-		SessionToken:         first.SessionToken,
-		URL:                  "https://example.test",
-		UserID:               "host-1",
+	postJSON[ErrorEnvelope](t, server, "/api/v1/rooms/get", getRoomRequest{
+		SessionToken: first.SessionToken,
 	}, http.StatusUnauthorized)
 
-	updated := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
-		CurrentTime:          4,
-		Duration:             100,
-		LastUpdateClientTime: 4,
-		Name:                 "room-c",
-		Paused:               false,
-		PlaybackRate:         1,
-		Protected:            true,
-		SessionToken:         second.SessionToken,
-		URL:                  "https://example.test",
-		UserID:               "host-2",
-	}, http.StatusOK)
-	if updated.Room.CurrentTime != 4 {
-		t.Fatalf("new host token did not update room: %+v", updated.Room)
-	}
-}
-
-func TestMemberUpdateChangesLoadingState(t *testing.T) {
-	server, _ := newTestServer()
-	defer server.Close()
-
-	host := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
-		CurrentTime:          10,
-		Duration:             120,
-		LastUpdateClientTime: 1,
-		Name:                 "room-d",
-		Password:             "pw",
-		Paused:               false,
-		PlaybackRate:         1,
-		Protected:            true,
-		URL:                  "https://example.test/watch",
-		UserID:               "host-1",
-	}, http.StatusOK)
-	member := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/join", joinRoomRequest{
-		Name:     "room-d",
-		Password: "pw",
-		UserID:   "member-1",
-	}, http.StatusOK)
-
-	updated := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/member-update", memberUpdateRequest{
-		CurrentURL:         "https://example.test/watch",
-		IsLoading:          true,
-		RoomName:           "room-d",
-		SendLocalTimestamp: 2,
-		SessionToken:       member.SessionToken,
-		UserID:             "member-1",
-	}, http.StatusOK)
-	if !updated.Room.WaitForLoading || updated.Room.MemberCount != 2 {
-		t.Fatalf("member loading data not reflected: %+v", updated.Room)
-	}
-
 	got := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/get", getRoomRequest{
-		Name:         "room-d",
-		SessionToken: host.SessionToken,
+		SessionToken: second.SessionToken,
 	}, http.StatusOK)
-	if got.Room.BeginLoadingTimestamp == 0 {
-		t.Fatalf("expected loading timestamp after query: %+v", got.Room)
+	if got.Room.RoomCode != second.Room.RoomCode || got.Room.ParticipantCount != 1 {
+		t.Fatalf("unexpected active room: %+v", got.Room)
 	}
 }
 
-func TestWebSocketRoomBroadcast(t *testing.T) {
+func TestLeaveDeletesEmptyRoom(t *testing.T) {
+	server, service := newTestServer()
+	defer server.Close()
+
+	created := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/create", createRoomRequest{
+		Nickname: "Alice",
+		UserID:   "user-1",
+	}, http.StatusOK)
+	postJSON[TimestampResponse](t, server, "/api/v1/rooms/leave", leaveRoomRequest{
+		SessionToken: created.SessionToken,
+	}, http.StatusOK)
+
+	if service.RoomExists(created.Room.RoomCode) {
+		t.Fatalf("expected empty room to be deleted")
+	}
+}
+
+func TestUpdatePublishesSharedVideoOnlyWhenSharing(t *testing.T) {
 	server, _ := newTestServer()
 	defer server.Close()
 
-	host := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
-		CurrentTime:          10,
-		Duration:             120,
-		LastUpdateClientTime: 1,
-		Name:                 "room-e",
-		Password:             "pw",
-		Paused:               true,
-		PlaybackRate:         1,
-		Protected:            true,
-		URL:                  "https://example.test/watch",
-		UserID:               "host-1",
+	created := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/create", createRoomRequest{
+		Nickname: "Alice",
+		UserID:   "user-1",
+	}, http.StatusOK)
+
+	notSharing := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/update", updateRoomRequest{
+		FocusedVideo:       sampleVideoState(12),
+		Nickname:           "Alice",
+		SendLocalTimestamp: 2,
+		SessionToken:       created.SessionToken,
+		Sharing:            false,
+	}, http.StatusOK)
+	alice := findParticipant(t, notSharing.Room, "user-1")
+	if alice.FocusedVideo != nil || alice.Sharing {
+		t.Fatalf("focus without sharing should not publish video: %+v", alice)
+	}
+
+	sharing := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/update", updateRoomRequest{
+		FocusedVideo:       sampleVideoState(24),
+		Nickname:           "Alice Cooper",
+		SendLocalTimestamp: 3,
+		SessionToken:       created.SessionToken,
+		Sharing:            true,
+	}, http.StatusOK)
+	alice = findParticipant(t, sharing.Room, "user-1")
+	if !alice.Sharing || alice.FocusedVideo == nil || alice.FocusedVideo.CurrentTime != 24 || alice.Nickname != "Alice Cooper" {
+		t.Fatalf("shared video not reflected: %+v", alice)
+	}
+}
+
+func TestExpiredParticipantsDeleteRoom(t *testing.T) {
+	Init()
+	service := NewVideoTogetherLiteService(time.Millisecond)
+	api := newSlashFix(service)
+	server := httptest.NewServer(api)
+	defer server.Close()
+
+	created := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/create", createRoomRequest{
+		Nickname: "Alice",
+		UserID:   "user-1",
+	}, http.StatusOK)
+	time.Sleep(3 * time.Millisecond)
+	service.RemoveExpiredRooms()
+
+	if service.RoomExists(created.Room.RoomCode) {
+		t.Fatalf("expected stale room to be deleted")
+	}
+}
+
+func TestWebSocketParticipantBroadcast(t *testing.T) {
+	server, _ := newTestServer()
+	defer server.Close()
+
+	created := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/create", createRoomRequest{
+		Nickname: "Alice",
+		UserID:   "user-1",
 	}, http.StatusOK)
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/v1/ws"
-	hostConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	aliceConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer hostConn.Close()
+	defer aliceConn.Close()
 
-	memberConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	bobConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer memberConn.Close()
+	defer bobConn.Close()
 
-	writeWS(t, memberConn, WsRequestMessage{
+	writeWS(t, aliceConn, WsRequestMessage{
+		ID:   "get-1",
+		Type: "room.get",
+		Data: mustJSON(t, getRoomRequest{SessionToken: created.SessionToken}),
+	})
+	readWSType(t, aliceConn, "room.get")
+
+	writeWS(t, bobConn, WsRequestMessage{
 		ID:   "join-1",
 		Type: "room.join",
-		Data: mustJSON(t, joinRoomRequest{Name: "room-e", Password: "pw", UserID: "member-1"}),
+		Data: mustJSON(t, joinRoomRequest{InviteCode: created.InviteCode, Nickname: "Bob", UserID: "user-2"}),
 	})
-	readWSType(t, memberConn, "room.join")
+	joinMsg := readWSType(t, bobConn, "room.join")
+	readWSType(t, aliceConn, "room.updated")
 
-	writeWS(t, hostConn, WsRequestMessage{
+	var joined RoomSessionResponse
+	if err := json.Unmarshal(joinMsg.Data, &joined); err != nil {
+		t.Fatal(err)
+	}
+
+	writeWS(t, bobConn, WsRequestMessage{
 		ID:   "update-1",
-		Type: "room.hostUpdate",
-		Data: mustJSON(t, hostUpdateRequest{
-			CurrentTime:          35,
-			Duration:             120,
-			LastUpdateClientTime: 2,
-			Name:                 "room-e",
-			Paused:               false,
-			PlaybackRate:         1,
-			Protected:            true,
-			SessionToken:         host.SessionToken,
-			URL:                  "https://example.test/watch",
-			UserID:               "host-1",
-			VideoTitle:           "Example",
+		Type: "room.update",
+		Data: mustJSON(t, updateRoomRequest{
+			FocusedVideo:       sampleVideoState(35),
+			Nickname:           "Bob",
+			SendLocalTimestamp: 2,
+			SessionToken:       joined.SessionToken,
+			Sharing:            true,
 		}),
 	})
-	readWSType(t, hostConn, "room.hostUpdate")
-	msg := readWSType(t, memberConn, "room.updated")
+	readWSType(t, bobConn, "room.update")
+	msg := readWSType(t, aliceConn, "room.updated")
 	var body RoomSessionResponse
 	if err := json.Unmarshal(msg.Data, &body); err != nil {
 		t.Fatal(err)
 	}
-	if body.Room.CurrentTime != 35 || body.Room.Paused {
+	bob := findParticipant(t, body.Room, "user-2")
+	if !bob.Sharing || bob.FocusedVideo == nil || bob.FocusedVideo.CurrentTime != 35 {
 		t.Fatalf("unexpected broadcast room: %+v", body.Room)
 	}
 }
@@ -258,6 +237,30 @@ type wsTestMessage struct {
 	Error *ErrorBody      `json:"error"`
 	ID    string          `json:"id"`
 	Type  string          `json:"type"`
+}
+
+func sampleVideoState(currentTime float64) *SharedVideoState {
+	return &SharedVideoState{
+		CurrentTime:          currentTime,
+		Duration:             120,
+		IsLoading:            false,
+		LastUpdateClientTime: 1,
+		Paused:               true,
+		PlaybackRate:         1,
+		Title:                "Example",
+		URL:                  "https://example.test/watch",
+	}
+}
+
+func findParticipant(t *testing.T, room Room, userID string) RoomParticipant {
+	t.Helper()
+	for _, participant := range room.Participants {
+		if participant.UserID == userID {
+			return participant
+		}
+	}
+	t.Fatalf("participant %q not found in %+v", userID, room)
+	return RoomParticipant{}
 }
 
 func postJSON[T any](t *testing.T, server *httptest.Server, path string, request interface{}, status int) T {

@@ -1,20 +1,20 @@
-import { calculateRealCurrent, type Room } from "@videotogetherlite/shared";
+import { calculateRealCurrent, type SharedVideoState } from "@videotogetherlite/shared";
 
 export async function syncVideoToRoom(
-  room: Room,
+  sharedVideo: SharedVideoState,
   video: HTMLVideoElement,
   localTimestamp: number,
   manualPlayMessage: string
 ): Promise<void> {
-  const realCurrent = calculateRealCurrent(room, localTimestamp);
-  if (!room.paused && Math.abs(video.currentTime - realCurrent) > 1) {
+  const realCurrent = calculateRealCurrent(sharedVideo, localTimestamp);
+  if (!sharedVideo.paused && Math.abs(video.currentTime - realCurrent) > 1) {
     video.currentTime = realCurrent;
-  } else if (room.paused && Math.abs(video.currentTime - room.currentTime) > 0.1) {
-    video.currentTime = room.currentTime;
+  } else if (sharedVideo.paused && Math.abs(video.currentTime - sharedVideo.currentTime) > 0.1) {
+    video.currentTime = sharedVideo.currentTime;
   }
 
-  if (video.paused !== room.paused) {
-    if (room.paused) {
+  if (video.paused !== sharedVideo.paused) {
+    if (sharedVideo.paused) {
       video.pause();
     } else {
       await video.play();
@@ -24,9 +24,9 @@ export async function syncVideoToRoom(
     }
   }
 
-  if (video.playbackRate !== room.playbackRate) {
+  if (video.playbackRate !== sharedVideo.playbackRate) {
     try {
-      video.playbackRate = Number.parseFloat(String(room.playbackRate));
+      video.playbackRate = Number.parseFloat(String(sharedVideo.playbackRate));
     } catch {
       // Some hosts block playbackRate updates.
     }

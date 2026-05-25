@@ -1,14 +1,15 @@
 import {
   updateTimeSync,
   type ApiErrorResponse,
+  type CreateRoomPayload,
   type GetRoomPayload,
-  type HostUpdatePayload,
   type JoinRoomPayload,
   type Language,
-  type MemberUpdatePayload,
+  type LeaveRoomPayload,
   type RoomSessionResponse,
   type TimeSyncState,
-  type TimestampResponse
+  type TimestampResponse,
+  type UpdateRoomPayload
 } from "@videotogetherlite/shared";
 
 type TimeSyncSetter = (state: TimeSyncState) => void;
@@ -27,6 +28,10 @@ export class VideoTogetherLiteApiClient {
     return this.fetchJson<TimestampResponse>("/api/v1/timestamp", undefined, "GET");
   }
 
+  async createRoom(payload: CreateRoomPayload): Promise<RoomSessionResponse> {
+    return this.fetchJson<RoomSessionResponse>("/api/v1/rooms/create", payload);
+  }
+
   async joinRoom(payload: JoinRoomPayload): Promise<RoomSessionResponse> {
     return this.fetchJson<RoomSessionResponse>("/api/v1/rooms/join", payload);
   }
@@ -35,12 +40,12 @@ export class VideoTogetherLiteApiClient {
     return this.fetchJson<RoomSessionResponse>("/api/v1/rooms/get", payload);
   }
 
-  async updateRoom(payload: HostUpdatePayload): Promise<RoomSessionResponse> {
-    return this.fetchJson<RoomSessionResponse>("/api/v1/rooms/host-update", payload);
+  async leaveRoom(payload: LeaveRoomPayload): Promise<TimestampResponse> {
+    return this.fetchJson<TimestampResponse>("/api/v1/rooms/leave", payload);
   }
 
-  async updateMember(payload: MemberUpdatePayload): Promise<RoomSessionResponse> {
-    return this.fetchJson<RoomSessionResponse>("/api/v1/rooms/member-update", payload);
+  async updateRoom(payload: UpdateRoomPayload): Promise<RoomSessionResponse> {
+    return this.fetchJson<RoomSessionResponse>("/api/v1/rooms/update", payload);
   }
 
   private async fetchJson<T>(

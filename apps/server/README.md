@@ -24,11 +24,12 @@ The production server listens on `:5000` with TLS.
 ## API Surface
 
 - `GET /api/v1/timestamp`
+- `POST /api/v1/rooms/create`
 - `POST /api/v1/rooms/join`
 - `POST /api/v1/rooms/get`
-- `POST /api/v1/rooms/host-update`
-- `POST /api/v1/rooms/member-update`
+- `POST /api/v1/rooms/update`
+- `POST /api/v1/rooms/leave`
 - `GET /api/v1/ws`
 
-Room passwords are sent only in JSON bodies during initial join/host claim.
-Subsequent calls use the returned `sessionToken`.
+Rooms use generated invite codes. Subsequent calls use the returned `sessionToken`.
+A browser-profile user can have one active room session at a time.

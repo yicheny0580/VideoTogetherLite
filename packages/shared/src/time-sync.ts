@@ -1,4 +1,4 @@
-import type { Room } from "./protocol";
+import type { SharedVideoState } from "./protocol";
 
 export interface TimeSyncState {
   minTrip: number;
@@ -41,8 +41,11 @@ export function getLocalTimestamp(state: TimeSyncState): number {
   return Date.now() / 1000 + state.offset;
 }
 
-export function calculateRealCurrent(room: Pick<Room, "currentTime" | "lastUpdateClientTime" | "playbackRate">, localTimestamp: number): number {
-  const playbackRate = Number.parseFloat(String(room.playbackRate));
-  return room.currentTime
-    + (localTimestamp - room.lastUpdateClientTime) * (Number.isNaN(playbackRate) ? 1 : playbackRate);
+export function calculateRealCurrent(
+  video: Pick<SharedVideoState, "currentTime" | "lastUpdateClientTime" | "playbackRate">,
+  localTimestamp: number
+): number {
+  const playbackRate = Number.parseFloat(String(video.playbackRate));
+  return video.currentTime
+    + (localTimestamp - video.lastUpdateClientTime) * (Number.isNaN(playbackRate) ? 1 : playbackRate);
 }

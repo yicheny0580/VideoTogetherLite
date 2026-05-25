@@ -26,9 +26,15 @@ function PanelRoot({ controller, iconUrl, language }: PanelRootProps): ReactElem
       iconUrl={iconUrl}
       language={language}
       messages={getMessages(language)}
-      onCreate={(name, password) => controller.createRoom(name, password)}
+      onCancelVideoPicker={() => controller.cancelVideoPicker()}
+      onClearFocusedVideo={() => controller.clearFocusedVideo()}
+      onCreate={(nickname) => controller.createRoom(nickname)}
       onExit={() => controller.exitRoom()}
-      onJoin={(name, password) => controller.joinRoom(name, password)}
+      onFollow={(userId) => controller.followParticipant(userId)}
+      onJoin={(inviteCode, nickname) => controller.joinRoom(inviteCode, nickname)}
+      onNicknameChange={(nickname) => controller.setNickname(nickname)}
+      onPickVideo={() => controller.startVideoPicker()}
+      onSetSharing={(sharing) => controller.setSharing(sharing)}
       state={state}
     />
   );

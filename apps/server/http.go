@@ -31,10 +31,11 @@ func newSlashFix(liteService *VideoTogetherLiteService) *slashFix {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/timestamp", s.handleTimestamp)
+	mux.HandleFunc("POST /api/v1/rooms/create", s.handleRoomCreate)
 	mux.HandleFunc("POST /api/v1/rooms/join", s.handleRoomJoin)
 	mux.HandleFunc("POST /api/v1/rooms/get", s.handleRoomGet)
-	mux.HandleFunc("POST /api/v1/rooms/host-update", s.handleHostUpdate)
-	mux.HandleFunc("POST /api/v1/rooms/member-update", s.handleMemberUpdate)
+	mux.HandleFunc("POST /api/v1/rooms/leave", s.handleRoomLeave)
+	mux.HandleFunc("POST /api/v1/rooms/update", s.handleRoomUpdate)
 
 	wsHub := newWsHub(liteService)
 	go wsHub.run()
@@ -63,10 +64,12 @@ func (h *slashFix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 type TimestampResponse struct {
 	Timestamp                float64 `json:"timestamp"`
-	VideoTogetherLiteVersion int     `json:"videoTogetherLiteVersion"`
+	VideoTogetherLiteVersion int     `json:"videoTogetherLiteVersion,omitempty"`
 }
 
 type RoomSessionResponse struct {
+	InviteCode   string  `json:"inviteCode,omitempty"`
+	InviteSecret string  `json:"inviteSecret,omitempty"`
 	Room         Room    `json:"room"`
 	SessionToken string  `json:"sessionToken,omitempty"`
 	Timestamp    float64 `json:"timestamp"`
@@ -87,40 +90,33 @@ type ErrorBody struct {
 	Message string `json:"message"`
 }
 
-type joinRoomRequest struct {
-	Name     string `json:"name"`
-	Password string `json:"password"`
+type createRoomRequest struct {
+	Nickname string `json:"nickname"`
 	UserID   string `json:"userId"`
 }
 
+type joinRoomRequest struct {
+	InviteCode   string `json:"inviteCode,omitempty"`
+	InviteSecret string `json:"inviteSecret,omitempty"`
+	Nickname     string `json:"nickname"`
+	RoomCode     string `json:"roomCode,omitempty"`
+	UserID       string `json:"userId"`
+}
+
 type getRoomRequest struct {
-	Name         string `json:"name"`
 	SessionToken string `json:"sessionToken"`
 }
 
-type hostUpdateRequest struct {
-	CurrentTime          float64 `json:"currentTime"`
-	Duration             float64 `json:"duration"`
-	LastUpdateClientTime float64 `json:"lastUpdateClientTime"`
-	Name                 string  `json:"name"`
-	Password             string  `json:"password,omitempty"`
-	Paused               bool    `json:"paused"`
-	PlaybackRate         float64 `json:"playbackRate"`
-	Protected            bool    `json:"protected"`
-	SendLocalTimestamp   float64 `json:"sendLocalTimestamp"`
-	SessionToken         string  `json:"sessionToken,omitempty"`
-	URL                  string  `json:"url"`
-	UserID               string  `json:"userId"`
-	VideoTitle           string  `json:"videoTitle"`
+type leaveRoomRequest struct {
+	SessionToken string `json:"sessionToken"`
 }
 
-type memberUpdateRequest struct {
-	CurrentURL         string  `json:"currentUrl"`
-	IsLoading          bool    `json:"isLoading"`
-	RoomName           string  `json:"roomName"`
-	SendLocalTimestamp float64 `json:"sendLocalTimestamp"`
-	SessionToken       string  `json:"sessionToken"`
-	UserID             string  `json:"userId"`
+type updateRoomRequest struct {
+	FocusedVideo       *SharedVideoState `json:"focusedVideo,omitempty"`
+	Nickname           string            `json:"nickname,omitempty"`
+	SendLocalTimestamp float64           `json:"sendLocalTimestamp"`
+	SessionToken       string            `json:"sessionToken"`
+	Sharing            bool              `json:"sharing"`
 }
 
 func (h *slashFix) handleTimestamp(w http.ResponseWriter, _ *http.Request) {
@@ -130,17 +126,31 @@ func (h *slashFix) handleTimestamp(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
+func (h *slashFix) handleRoomCreate(w http.ResponseWriter, req *http.Request) {
+	var body createRoomRequest
+	if !h.decodeJSON(w, req, &body) {
+		return
+	}
+	result, err := h.liteService.CreateRoom(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), CreateRoomInput{
+		Nickname: body.Nickname,
+		UserID:   body.UserID,
+	})
+	h.respondRoomResult(w, result, err)
+}
+
 func (h *slashFix) handleRoomJoin(w http.ResponseWriter, req *http.Request) {
 	var body joinRoomRequest
 	if !h.decodeJSON(w, req, &body) {
 		return
 	}
 	result, err := h.liteService.JoinRoom(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), JoinRoomInput{
-		Password: body.Password,
-		RoomName: body.Name,
-		UserID:   body.UserID,
+		InviteCode:   body.InviteCode,
+		InviteSecret: body.InviteSecret,
+		Nickname:     body.Nickname,
+		RoomCode:     body.RoomCode,
+		UserID:       body.UserID,
 	})
-	h.respondResult(w, result, err)
+	h.respondRoomResult(w, result, err)
 }
 
 func (h *slashFix) handleRoomGet(w http.ResponseWriter, req *http.Request) {
@@ -149,51 +159,43 @@ func (h *slashFix) handleRoomGet(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	result, err := h.liteService.GetRoom(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), GetRoomInput{
-		RoomName:     body.Name,
 		SessionToken: body.SessionToken,
 	})
-	h.respondResult(w, result, err)
+	h.respondRoomResult(w, result, err)
 }
 
-func (h *slashFix) handleHostUpdate(w http.ResponseWriter, req *http.Request) {
-	var body hostUpdateRequest
+func (h *slashFix) handleRoomLeave(w http.ResponseWriter, req *http.Request) {
+	var body leaveRoomRequest
 	if !h.decodeJSON(w, req, &body) {
 		return
 	}
-	if err := validateHostUpdate(body); err != nil {
+	result, _, err := h.liteService.LeaveRoom(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), LeaveRoomInput{
+		SessionToken: body.SessionToken,
+	})
+	if err != nil {
 		h.respondError(w, err)
 		return
 	}
-	result, err := h.liteService.HostUpdateRoom(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), HostUpdateInput{
-		CurrentTime:          body.CurrentTime,
-		Duration:             body.Duration,
-		LastUpdateClientTime: body.LastUpdateClientTime,
-		Password:             body.Password,
-		Paused:               body.Paused,
-		PlaybackRate:         body.PlaybackRate,
-		Protected:            body.Protected,
-		RoomName:             body.Name,
-		SessionToken:         body.SessionToken,
-		URL:                  body.URL,
-		UserID:               body.UserID,
-		VideoTitle:           body.VideoTitle,
-	})
-	h.respondResult(w, result, err)
+	h.JSON(w, http.StatusOK, TimestampResponse{Timestamp: result.Timestamp})
 }
 
-func (h *slashFix) handleMemberUpdate(w http.ResponseWriter, req *http.Request) {
-	var body memberUpdateRequest
+func (h *slashFix) handleRoomUpdate(w http.ResponseWriter, req *http.Request) {
+	var body updateRoomRequest
 	if !h.decodeJSON(w, req, &body) {
 		return
 	}
-	result, _, err := h.liteService.UpdateMember(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), MemberUpdateInput{
-		CurrentURL:   body.CurrentURL,
-		IsLoading:    body.IsLoading,
-		RoomName:     body.RoomName,
-		SessionToken: body.SessionToken,
-		UserID:       body.UserID,
+	if err := validateRoomUpdate(body); err != nil {
+		h.respondError(w, err)
+		return
+	}
+	result, err := h.liteService.UpdateRoom(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), UpdateRoomInput{
+		FocusedVideo:  body.FocusedVideo,
+		Nickname:      body.Nickname,
+		SendLocalTime: body.SendLocalTimestamp,
+		SessionToken:  body.SessionToken,
+		Sharing:       body.Sharing,
 	})
-	h.respondResult(w, result, err)
+	h.respondRoomResult(w, result, err)
 }
 
 func (h *slashFix) decodeJSON(w http.ResponseWriter, req *http.Request, dest interface{}) bool {
@@ -216,12 +218,14 @@ func (h *slashFix) decodeJSON(w http.ResponseWriter, req *http.Request, dest int
 	return true
 }
 
-func (h *slashFix) respondResult(w http.ResponseWriter, result RoomSessionResult, err error) {
+func (h *slashFix) respondRoomResult(w http.ResponseWriter, result RoomSessionResult, err error) {
 	if err != nil {
 		h.respondError(w, err)
 		return
 	}
 	h.JSON(w, http.StatusOK, RoomSessionResponse{
+		InviteCode:   result.InviteCode,
+		InviteSecret: result.InviteSecret,
 		Room:         result.Room,
 		SessionToken: result.SessionToken,
 		Timestamp:    result.Timestamp,
@@ -257,19 +261,27 @@ func (h *slashFix) respondError(w io.Writer, err error) {
 
 func (h *slashFix) enableCors(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Private-Network", "true")
 	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Max-Age", "86400")
 }
 
-func validateHostUpdate(body hostUpdateRequest) error {
-	if body.Name == "" {
-		return newAppError(errInvalidRequest, "name is required")
+func validateRoomUpdate(body updateRoomRequest) error {
+	if body.SessionToken == "" {
+		return newAppError(errInvalidRequest, "sessionToken is required")
 	}
-	if body.SessionToken == "" && body.Password == "" {
-		return newAppError(errInvalidRequest, "password or sessionToken is required")
+	if body.Sharing && body.FocusedVideo == nil {
+		return newAppError(errInvalidRequest, "focusedVideo is required when sharing")
 	}
-	if !isFinite(body.CurrentTime) || !isFinite(body.Duration) || !isFinite(body.LastUpdateClientTime) || !isFinite(body.PlaybackRate) {
+	if !isFinite(body.SendLocalTimestamp) {
+		return newAppError(errInvalidRequest, "numeric fields must be finite")
+	}
+	if body.FocusedVideo == nil {
+		return nil
+	}
+	video := body.FocusedVideo
+	if !isFinite(video.CurrentTime) || !isFinite(video.Duration) || !isFinite(video.LastUpdateClientTime) || !isFinite(video.PlaybackRate) {
 		return newAppError(errInvalidRequest, "numeric fields must be finite")
 	}
 	return nil

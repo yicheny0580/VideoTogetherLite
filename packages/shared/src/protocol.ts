@@ -1,19 +1,29 @@
-export interface Room {
-  beginLoadingTimestamp: number;
+export interface SharedVideoState {
   currentTime: number;
   duration: number;
+  isLoading: boolean;
   lastUpdateClientTime: number;
   lastUpdateServerTime: number;
-  memberCount: number;
-  name: string;
   paused: boolean;
   playbackRate: number;
-  protected: boolean;
-  timestamp?: number;
+  title: string;
   url: string;
+}
+
+export interface RoomParticipant {
+  focusedVideo?: SharedVideoState;
+  lastSeenServerTime: number;
+  nickname: string;
+  sharing: boolean;
+  userId: string;
+}
+
+export interface Room {
+  participantCount: number;
+  participants: RoomParticipant[];
+  roomCode: string;
+  timestamp?: number;
   uuid: string;
-  videoTitle: string;
-  waitForLoading: boolean;
 }
 
 export interface TimestampResponse {
@@ -31,6 +41,8 @@ export interface ApiErrorResponse {
 }
 
 export interface RoomSessionResponse extends Partial<TimestampResponse> {
+  inviteCode?: string;
+  inviteSecret?: string;
   room: Room;
   sessionToken?: string;
 }
@@ -42,10 +54,11 @@ export interface TimestampReplay {
 }
 
 export type WsMessageType =
+  | "room.create"
   | "room.join"
   | "room.get"
-  | "room.hostUpdate"
-  | "room.memberUpdate"
+  | "room.leave"
+  | "room.update"
   | "room.updated"
   | "timestamp.replay"
   | "error";
@@ -63,38 +76,31 @@ export interface WsResponse<TData = unknown> {
   type: WsMessageType | string;
 }
 
-export interface JoinRoomPayload {
-  name: string;
-  password: string;
+export interface CreateRoomPayload {
+  nickname: string;
   userId: string;
 }
 
 export interface GetRoomPayload {
-  name: string;
   sessionToken: string;
 }
 
-export interface HostUpdatePayload {
-  currentTime: number;
-  duration: number;
-  lastUpdateClientTime: number;
-  name: string;
-  password?: string;
-  paused: boolean;
-  playbackRate: number;
-  protected: boolean;
-  sendLocalTimestamp: number;
-  sessionToken?: string;
-  url: string;
+export interface JoinRoomPayload {
+  inviteCode?: string;
+  inviteSecret?: string;
+  nickname: string;
+  roomCode?: string;
   userId: string;
-  videoTitle: string;
 }
 
-export interface MemberUpdatePayload {
-  currentUrl: string;
-  isLoading: boolean;
-  roomName: string;
+export interface LeaveRoomPayload {
+  sessionToken: string;
+}
+
+export interface UpdateRoomPayload {
+  focusedVideo?: SharedVideoState;
+  nickname?: string;
   sendLocalTimestamp: number;
   sessionToken: string;
-  userId: string;
+  sharing: boolean;
 }
