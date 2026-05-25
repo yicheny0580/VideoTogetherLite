@@ -34,7 +34,6 @@ function PanelRoot({ controller, iconUrl, language }: PanelRootProps): ReactElem
       onJoin={(inviteCode, nickname) => controller.joinRoom(inviteCode, nickname)}
       onNicknameChange={(nickname) => controller.setNickname(nickname)}
       onPickVideo={() => controller.startVideoPicker()}
-      onSetSharing={(sharing) => controller.setSharing(sharing)}
       state={state}
     />
   );

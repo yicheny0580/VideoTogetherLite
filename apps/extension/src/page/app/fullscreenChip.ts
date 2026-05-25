@@ -2,32 +2,25 @@ export interface FullscreenChipLabels {
   exitRoom: string;
   focused: string;
   openPanel: string;
-  sharingOff: string;
-  sharingOn: string;
   sharingOnLabel: string;
 }
 
 export interface FullscreenChipActions {
   onExitRoom: () => void;
   onOpenPanel: () => void;
-  onToggleSharing: () => void;
 }
 
 type FullscreenChipLabelKey =
   | "exit_room_short"
   | "fullscreen_focused"
   | "fullscreen_sharing_on"
-  | "open_panel_short"
-  | "sharing_off_short"
-  | "sharing_on_short";
+  | "open_panel_short";
 
 export function getFullscreenChipLabels(message: (key: FullscreenChipLabelKey) => string): FullscreenChipLabels {
   return {
     exitRoom: message("exit_room_short"),
     focused: message("fullscreen_focused"),
     openPanel: message("open_panel_short"),
-    sharingOff: message("sharing_off_short"),
-    sharingOn: message("sharing_on_short"),
     sharingOnLabel: message("fullscreen_sharing_on")
   };
 }
@@ -65,10 +58,6 @@ export function renderFullscreenChip(
   const label = document.createElement("span");
   label.textContent = sharing ? labels.sharingOnLabel : labels.focused;
   chip.appendChild(label);
-  chip.appendChild(createChipButton(
-    sharing ? labels.sharingOn : labels.sharingOff,
-    actions.onToggleSharing
-  ));
   chip.appendChild(createChipButton(labels.openPanel, actions.onOpenPanel));
   chip.appendChild(createChipButton(labels.exitRoom, actions.onExitRoom));
   return chip;

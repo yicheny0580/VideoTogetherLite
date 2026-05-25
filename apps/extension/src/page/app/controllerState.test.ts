@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createTimeSyncState } from "@videotogetherlite/shared";
+import { createTimeSyncState, type Room, type SharedVideoState } from "@videotogetherlite/shared";
 
 import type { FocusableVideo, VideoRegistry } from "../infrastructure/videoRegistry";
-import { buildFocusedVideoState } from "./controllerState";
+import { buildFocusedVideoState, syncFollowTargetVideo } from "./controllerState";
 
 function registryFor(video: HTMLVideoElement | null): VideoRegistry {
   const summary: FocusableVideo = {
@@ -31,11 +31,25 @@ function videoWithState(overrides: Partial<HTMLVideoElement> = {}): HTMLVideoEle
   } as HTMLVideoElement;
 }
 
+function sharedVideo(overrides: Partial<SharedVideoState> = {}): SharedVideoState {
+  return {
+    currentTime: 30,
+    duration: 120,
+    isLoading: false,
+    lastUpdateClientTime: Date.now() / 1000,
+    lastUpdateServerTime: 0,
+    paused: true,
+    playbackRate: 1,
+    title: "Shared video",
+    url: window.location.href,
+    ...overrides
+  };
+}
+
 describe("buildFocusedVideoState", () => {
   it("keeps a playing state even while the video is still loading", () => {
     const state = buildFocusedVideoState(
       registryFor(videoWithState({ paused: false, readyState: 2 })),
-      true,
       createTimeSyncState()
     );
 
@@ -44,11 +58,44 @@ describe("buildFocusedVideoState", () => {
     expect(state?.playbackRate).toBe(1.25);
   });
 
-  it("does not publish a focused video when sharing is off", () => {
+  it("does not publish without a focused video", () => {
     expect(buildFocusedVideoState(
-      registryFor(videoWithState()),
-      false,
+      registryFor(null),
       createTimeSyncState()
     )).toBeUndefined();
+  });
+
+  it("follows with an automatic playback target instead of a picked video", async () => {
+    const followerVideo = videoWithState({ currentTime: 0, paused: true });
+    const room: Room = {
+      participantCount: 2,
+      participants: [{
+        focusedVideo: sharedVideo({ currentTime: 33 }),
+        lastSeenServerTime: 0,
+        nickname: "Alice",
+        sharing: true,
+        userId: "alice"
+      }],
+      roomCode: "ROOM",
+      uuid: "room-uuid"
+    };
+    const registry = {
+      getPlaybackTargetVideoDom: () => followerVideo,
+      getVideoDom: () => null
+    } as unknown as VideoRegistry;
+
+    await syncFollowTargetVideo({
+      followUserId: "alice",
+      manualPlayMessage: "manual",
+      onStatus: () => undefined,
+      pickVideoToFollowMessage: "no video",
+      room,
+      saveState: () => undefined,
+      sessionToken: "session",
+      timeSync: createTimeSyncState(),
+      videoRegistry: registry
+    });
+
+    expect(followerVideo.currentTime).toBe(33);
   });
 });

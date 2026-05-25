@@ -18,7 +18,6 @@ interface FloatingPanelProps {
   onJoin: (inviteCode: string, nickname: string) => void;
   onNicknameChange: (nickname: string) => void;
   onPickVideo: () => void;
-  onSetSharing: (sharing: boolean) => void;
   state: PanelState;
 }
 
@@ -40,7 +39,6 @@ export function FloatingPanel({
   onJoin,
   onNicknameChange,
   onPickVideo,
-  onSetSharing,
   state
 }: FloatingPanelProps): ReactElement {
   const [minimized, setMinimized] = useState(
@@ -210,15 +208,6 @@ export function FloatingPanel({
                     </div>
                   </div>
                 )}
-                <label className="vtl-toggle">
-                  <input
-                    checked={state.sharing}
-                    id="videoTogetherLiteShareToggle"
-                    onChange={(event) => onSetSharing(event.target.checked)}
-                    type="checkbox"
-                  />
-                  <span>{messages.share_progress_toggle}</span>
-                </label>
               </section>
 
               <section className="grid gap-2">

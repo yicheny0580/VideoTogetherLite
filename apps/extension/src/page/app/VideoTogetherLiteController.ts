@@ -8,7 +8,7 @@ import {
 } from "@videotogetherlite/shared";
 
 import { translate, type LocaleKey } from "../../i18n/messages";
-import { VideoTogetherLiteApiClient } from "../infrastructure/httpClient";
+import { ApiClientError, VideoTogetherLiteApiClient } from "../infrastructure/httpClient";
 import { PageStateStore } from "../infrastructure/pageStateStore";
 import { VideoTogetherLiteWsClient } from "../infrastructure/wsClient";
 import { VideoRegistry } from "../infrastructure/videoRegistry";
@@ -150,19 +150,9 @@ export class VideoTogetherLiteController {
     void this.scheduledTask();
   }
 
-  setSharing(nextSharing: boolean): void {
-    if (nextSharing && this.videoRegistry.getVideoDom() === null) {
-      this.updateStatus(this.message("please_pick_video"), "danger");
-      return;
-    }
-    this.setPanelState({ sharing: nextSharing });
-    this.updateFullscreenChip();
-    void this.scheduledTask();
-  }
-
   start(): void {
     this.videoRegistry.observe();
-    this.recoverState();
+    void this.recoverState();
     document.addEventListener("fullscreenchange", this.fullscreenListener);
     this.timer = window.setInterval(() => void this.scheduledTask(true), 2000);
   }
@@ -202,10 +192,12 @@ export class VideoTogetherLiteController {
       this.panelState.followUserId,
       this.message("no_shared_video")
     ));
+    const localParticipant = room.participants.find((participant) => participant.userId === this.userId);
     this.setPanelState({
       participantCount: room.participantCount,
       participants,
-      roomCode: room.roomCode
+      roomCode: room.roomCode,
+      sharing: Boolean(localParticipant?.sharing && localParticipant.focusedVideo !== undefined)
     });
     this.saveState();
   }
@@ -270,14 +262,27 @@ export class VideoTogetherLiteController {
     this.updateStatus(statusText, "danger");
   }
 
+  private handleStaleRoomError(error: unknown): boolean {
+    if (
+      error instanceof ApiClientError
+      && (error.code === "room_not_found" || error.code === "unauthorized")
+    ) {
+      const message = error.message;
+      this.clearLocalRoomState();
+      this.updateStatus(message, "danger");
+      return true;
+    }
+    return false;
+  }
+
   private message(key: LocaleKey): string { return translate(this.language, key); }
 
-  private recoverState(): void {
+  private async recoverState(): Promise<void> {
     if (window.self !== window.top) {
       return;
     }
 
-    const state = this.stateStore.recover(window.location);
+    const state = await this.stateStore.recover(window.location);
     if (!state) {
       return;
     }
@@ -327,6 +332,9 @@ export class VideoTogetherLiteController {
       this.saveState();
       this.updateStatus(`${this.message("sync_success")} ${getDisplayTimeText()}`, "success");
     } catch (error) {
+      if (this.handleStaleRoomError(error)) {
+        return;
+      }
       this.handleActionError(error);
     }
   }
@@ -352,10 +360,7 @@ export class VideoTogetherLiteController {
     });
   }
 
-  private async syncTimeWithServer(): Promise<void> {
-    await this.apiClient.timestamp();
-    this.httpSucc = true;
-  }
+  private async syncTimeWithServer(): Promise<void> { await this.apiClient.timestamp(); this.httpSucc = true; }
 
   private async updateCurrentParticipant(): Promise<Room> {
     return updateParticipantRoom({
@@ -364,7 +369,6 @@ export class VideoTogetherLiteController {
       nickname: this.panelState.nickname,
       onLostFocusedVideo: () => this.setPanelState({ focusedVideo: null, sharing: false }),
       sessionToken: this.sessionToken,
-      sharing: this.panelState.sharing,
       timeSync: this.timeSync,
       videoRegistry: this.videoRegistry,
       wsClient: this.wsClient
@@ -379,15 +383,12 @@ export class VideoTogetherLiteController {
       this.panelState.sharing,
       {
         onExitRoom: () => this.exitRoom(),
-        onOpenPanel: () => void document.exitFullscreen?.(),
-        onToggleSharing: () => this.setSharing(!this.panelState.sharing)
+        onOpenPanel: () => void document.exitFullscreen?.()
       }
     );
   }
 
-  private updateStatus(statusText: string, statusTone: StatusTone): void {
-    this.setPanelState({ statusText, statusTone });
-  }
+  private updateStatus(statusText: string, statusTone: StatusTone): void { this.setPanelState({ statusText, statusTone }); }
 
   private updateTimestampIfNeeded(serverTimestamp: number, startTime: number, endTime: number): void {
     this.timeSync = updateTimeSync(this.timeSync, serverTimestamp, startTime, endTime);

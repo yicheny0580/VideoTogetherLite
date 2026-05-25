@@ -13,7 +13,6 @@ import {
   pickVideoButton,
   pickFirstVideo,
   setFixtureVideo,
-  shareToggle,
   statusText
 } from "./helpers/panel";
 
@@ -40,7 +39,6 @@ test("creates a participant room and follows an explicitly focused video", async
   await createButton(alice).click();
   await expect(alice.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
   await pickFirstVideo(alice);
-  await shareToggle(alice).setChecked(true);
   await expect(statusText(alice)).toContainText("Sync");
   const inviteCode = await inviteCodeText(alice).innerText();
   expect(inviteCode).toContain(".");
@@ -51,7 +49,6 @@ test("creates a participant room and follows an explicitly focused video", async
   await fillInvite(bob, inviteCode);
   await joinButton(bob).click();
   await expect(bob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  await pickFirstVideo(bob);
   await bob.getByRole("button", { name: "Follow" }).click();
   await expect(participantCount(alice)).toContainText("2");
   await expectVideoState(bob, {
@@ -91,10 +88,19 @@ test("creates a participant room and follows an explicitly focused video", async
 
   await bob.reload();
   await expect(bob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await expect(bob.getByRole("button", { name: "Following" })).toBeVisible();
 
-  await exitButton(bob).click();
-  await expect(createButton(bob)).toBeVisible();
-  expect(await bob.evaluate(() => sessionStorage.getItem("VideoTogetherLiteRoomCode")))
+  const bobContext = bob.context();
+  const bobUrl = bob.url();
+  await bob.close();
+  const reopenedBob = await bobContext.newPage();
+  await reopenedBob.goto(bobUrl);
+  await expect(reopenedBob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await expect(reopenedBob.getByRole("button", { name: "Following" })).toBeVisible();
+
+  await exitButton(reopenedBob).click();
+  await expect(createButton(reopenedBob)).toBeVisible();
+  expect(await reopenedBob.evaluate(() => sessionStorage.getItem("VideoTogetherLiteRoomCode")))
     .toBeNull();
 });
 
@@ -103,8 +109,6 @@ test("keeps focus explicit and reports invalid invite or missing videos", async 
   await fillNickname(alice, "Alice");
   await createButton(alice).click();
   await expect(alice.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  await shareToggle(alice).click();
-  await expect(statusText(alice)).toContainText("Pick a video before sharing");
   const roomCode = (await inviteCodeText(alice).innerText()).split(".")[0]!;
 
   const bob = await openFixture("/member");

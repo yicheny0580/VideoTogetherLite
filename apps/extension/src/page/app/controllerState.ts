@@ -17,12 +17,8 @@ import { syncVideoToRoom } from "./videoSync";
 
 export function buildFocusedVideoState(
   videoRegistry: VideoRegistry,
-  sharing: boolean,
   timeSync: TimeSyncState
 ): SharedVideoState | undefined {
-  if (!sharing) {
-    return undefined;
-  }
   const video = videoRegistry.getVideoDom();
   if (video === null) {
     return undefined;
@@ -95,7 +91,7 @@ export function startVideoPickerFlow({
   setPanelState({ pickingVideo: true, statusText: text.instruction, statusTone: "default" });
   const started = videoRegistry.startPicker(
     (video) => {
-      setPanelState({ focusedVideo: video, pickingVideo: false, statusText: text.focused, statusTone: "success" });
+      setPanelState({ focusedVideo: video, pickingVideo: false, sharing: true, statusText: text.focused, statusTone: "success" });
       onUpdateFullscreen();
       onSchedule();
     },
@@ -144,7 +140,7 @@ export async function syncFollowTargetVideo({
     return;
   }
 
-  const video = videoRegistry.getVideoDom();
+  const video = videoRegistry.getPlaybackTargetVideoDom();
   if (video === null) {
     onStatus(pickVideoToFollowMessage, "danger");
     return;
@@ -159,7 +155,6 @@ export async function updateParticipantRoom({
   nickname,
   onLostFocusedVideo,
   sessionToken,
-  sharing,
   timeSync,
   videoRegistry,
   wsClient
@@ -169,13 +164,12 @@ export async function updateParticipantRoom({
   nickname: string;
   onLostFocusedVideo: () => void;
   sessionToken: string;
-  sharing: boolean;
   timeSync: TimeSyncState;
   videoRegistry: VideoRegistry;
   wsClient: VideoTogetherLiteWsClient;
 }): Promise<Room> {
-  const focusedVideo = buildFocusedVideoState(videoRegistry, sharing, timeSync);
-  if (sharing && focusedVideo === undefined) {
+  const focusedVideo = buildFocusedVideoState(videoRegistry, timeSync);
+  if (focusedVideo === undefined) {
     onLostFocusedVideo();
   }
   const payload = {
@@ -183,7 +177,7 @@ export async function updateParticipantRoom({
     nickname,
     sendLocalTimestamp: Date.now() / 1000,
     sessionToken,
-    sharing: sharing && focusedVideo !== undefined
+    sharing: focusedVideo !== undefined
   };
   if (wsClient.isOpen()) {
     wsClient.updateRoom(payload);

@@ -105,6 +105,31 @@ export class VideoRegistry {
     return video === null ? null : this.toSummary(video);
   }
 
+  getPlaybackTargetVideoDom(): HTMLVideoElement | null {
+    const focusedVideo = this.getVideoDom();
+    if (focusedVideo !== null) {
+      return focusedVideo;
+    }
+
+    let firstVideo: HTMLVideoElement | null = null;
+    let largestVisibleVideo: HTMLVideoElement | null = null;
+    let largestVisibleArea = 0;
+    this.forEachVideo((video) => {
+      firstVideo ??= video;
+      if (!isVisibleVideo(video)) {
+        return;
+      }
+      const rect = video.getBoundingClientRect();
+      const area = rect.width * rect.height;
+      if (area > largestVisibleArea) {
+        largestVisibleArea = area;
+        largestVisibleVideo = video;
+      }
+    });
+
+    return largestVisibleVideo ?? firstVideo;
+  }
+
   getVideoDom(id = this.focusedVideoId): HTMLVideoElement | null {
     if (id === "") {
       return null;

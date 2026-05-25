@@ -44,10 +44,6 @@ export function pickVideoButton(page: Page): Locator {
   return page.locator("#videoTogetherLitePickVideoButton");
 }
 
-export function shareToggle(page: Page): Locator {
-  return page.locator("#videoTogetherLiteShareToggle");
-}
-
 export function statusText(page: Page): Locator {
   return page.locator("#videoTogetherLiteStatusText");
 }

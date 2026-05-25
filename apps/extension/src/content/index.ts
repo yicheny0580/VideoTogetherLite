@@ -1,9 +1,18 @@
 const blockedHosts = new Set(["challenges.cloudflare.com"]);
 const languages = ["en-us", "zh-cn"] as const;
 const nicknameKey = "VideoTogetherLiteNickname";
+const roomStateKey = "VideoTogetherLiteRoomState";
 const userIdKey = "VideoTogetherLiteUserId";
 
 type Language = typeof languages[number];
+
+interface StoredRoomState {
+  followUserId: string;
+  roomCode: string;
+  sessionToken: string;
+  timestamp: number;
+  url: string;
+}
 
 function getValue<T>(key: string): Promise<T | undefined> {
   return chrome.storage.local.get([key]).then((result) => result[key] as T | undefined);
@@ -121,6 +130,51 @@ function listenForProfileUpdates(): void {
   });
 }
 
+function isStoredRoomState(candidate: unknown): candidate is StoredRoomState {
+  if (typeof candidate !== "object" || candidate === null) {
+    return false;
+  }
+  const state = candidate as Partial<StoredRoomState>;
+  return typeof state.followUserId === "string"
+    && typeof state.roomCode === "string"
+    && typeof state.sessionToken === "string"
+    && typeof state.timestamp === "number"
+    && typeof state.url === "string";
+}
+
+function listenForRoomStateMessages(): void {
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) {
+      return;
+    }
+    const message = event.data as { data?: unknown; id?: unknown; source?: unknown; type?: unknown };
+    if (message?.source !== "VideoTogetherLite") {
+      return;
+    }
+
+    if (message.type === "room-state.get") {
+      void getValue<StoredRoomState>(roomStateKey).then((state) => {
+        window.postMessage({
+          data: isStoredRoomState(state) ? state : null,
+          id: message.id,
+          source: "VideoTogetherLiteContent",
+          type: "room-state.get.result"
+        }, "*");
+      });
+      return;
+    }
+
+    if (message.type === "room-state.save" && isStoredRoomState(message.data)) {
+      void setValue(roomStateKey, message.data);
+      return;
+    }
+
+    if (message.type === "room-state.clear") {
+      void chrome.storage.local.remove(roomStateKey);
+    }
+  });
+}
+
 function injectPageScript(language: Language, userId: string, nickname: string): void {
   const script = document.createElement("script");
   const source = new URL(chrome.runtime.getURL("page.js"));
@@ -149,6 +203,7 @@ async function main(): Promise<void> {
   const userId = await getOrCreateUserId();
   const nickname = await getValue<string>(nicknameKey) ?? "";
   listenForProfileUpdates();
+  listenForRoomStateMessages();
   mountLoadingIndicator();
   injectPageScript(language, userId, nickname);
 }

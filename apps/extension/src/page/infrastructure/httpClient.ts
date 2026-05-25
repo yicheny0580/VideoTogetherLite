@@ -15,6 +15,17 @@ import {
 type TimeSyncSetter = (state: TimeSyncState) => void;
 type TimeSyncGetter = () => TimeSyncState;
 
+export class ApiClientError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+    readonly status: number
+  ) {
+    super(message);
+    this.name = "ApiClientError";
+  }
+}
+
 export class VideoTogetherLiteApiClient {
   constructor(
     private readonly host: string,
@@ -67,10 +78,14 @@ export class VideoTogetherLiteApiClient {
     const data = await response.json() as T & Partial<TimestampResponse> & Partial<ApiErrorResponse>;
 
     if (!response.ok) {
-      throw new Error(data.error?.message ?? `http code: ${response.status}`);
+      throw new ApiClientError(
+        data.error?.code ?? "http_error",
+        data.error?.message ?? `http code: ${response.status}`,
+        response.status
+      );
     }
     if (data.error !== undefined) {
-      throw new Error(data.error.message);
+      throw new ApiClientError(data.error.code, data.error.message, response.status);
     }
     if (data.timestamp !== undefined) {
       this.setTimeSync(updateTimeSync(this.getTimeSync(), data.timestamp, startTime, endTime));
