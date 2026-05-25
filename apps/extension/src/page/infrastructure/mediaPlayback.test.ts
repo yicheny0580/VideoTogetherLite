@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createPlaybackAdapter } from "./mediaPlayback";
+import { createBilibiliAdapter, isBilibiliOwnedHost } from "./playbackAdapters/bilibiliAdapter";
 import { createYouTubeAdapter, isYouTubeOwnedHost } from "./playbackAdapters/youtubeAdapter";
 
 interface FakeYouTubePlayer {
@@ -14,6 +15,7 @@ interface FakeYouTubePlayer {
 
 afterEach(() => {
   document.body.replaceChildren();
+  Reflect.deleteProperty(window, "player");
 });
 
 function bufferedRange(end: number): TimeRanges {
@@ -99,6 +101,87 @@ function createManagedYouTubeVideo(options: {
   player.seekTo = vi.fn();
   player.append(video);
   document.body.append(player);
+
+  return { player, rawCurrentTimeSetter, rawPlaybackRateSetter, video };
+}
+
+function createManagedBilibiliVideo(options: {
+  currentTime?: number;
+  duration?: number;
+  initError?: boolean;
+  paused?: boolean;
+  readyState?: number;
+  seeking?: boolean;
+} = {}) {
+  const {
+    currentTime = 42,
+    duration = 120,
+    initError = false,
+    paused = false,
+    readyState = 4,
+    seeking = false
+  } = options;
+  let nextCurrentTime = currentTime;
+  let nextPaused = paused;
+  let nextPlaybackRate = 1.25;
+  let nextSeeking = seeking;
+  const rawCurrentTimeSetter = vi.fn();
+  const rawPlaybackRateSetter = vi.fn();
+  const video = document.createElement("video");
+  Object.defineProperty(video, "currentTime", {
+    configurable: true,
+    get: () => nextCurrentTime,
+    set: (value: number) => {
+      nextCurrentTime = value;
+      rawCurrentTimeSetter(value);
+    }
+  });
+  Object.defineProperty(video, "duration", {
+    configurable: true,
+    get: () => duration
+  });
+  Object.defineProperty(video, "paused", {
+    configurable: true,
+    get: () => nextPaused
+  });
+  Object.defineProperty(video, "playbackRate", {
+    configurable: true,
+    get: () => nextPlaybackRate,
+    set: (value: number) => {
+      nextPlaybackRate = value;
+      rawPlaybackRateSetter(value);
+    }
+  });
+  Object.defineProperty(video, "readyState", {
+    configurable: true,
+    get: () => readyState
+  });
+
+  const player = {
+    getCurrentTime: vi.fn(() => nextCurrentTime),
+    getDuration: vi.fn(() => duration),
+    getPlaybackRate: vi.fn(() => nextPlaybackRate),
+    getStates: vi.fn(() => ({ initError })),
+    isEnded: vi.fn(() => false),
+    isPaused: vi.fn(() => nextPaused),
+    isSeeking: vi.fn(() => nextSeeking),
+    mediaElement: vi.fn(() => video),
+    pause: vi.fn(() => {
+      nextPaused = true;
+    }),
+    play: vi.fn(async () => {
+      nextPaused = false;
+    }),
+    seek: vi.fn((seconds: number) => {
+      nextCurrentTime = seconds;
+      nextSeeking = false;
+    }),
+    setPlaybackRate: vi.fn((rate: number) => {
+      nextPlaybackRate = rate;
+    })
+  };
+  window.player = player;
+  document.body.append(video);
 
   return { player, rawCurrentTimeSetter, rawPlaybackRateSetter, video };
 }
@@ -211,6 +294,70 @@ describe("mediaPlayback", () => {
   it("falls back to the HTML adapter off YouTube hosts", () => {
     const { rawCurrentTimeSetter, video } = createManagedYouTubeVideo();
     const adapter = createPlaybackAdapter(video, "example.com");
+
+    expect(adapter.kind).toBe("html-video");
+    adapter.seek(50);
+    expect(rawCurrentTimeSetter).toHaveBeenCalledWith(50);
+  });
+
+  it("recognizes Bilibili-owned hosts", () => {
+    expect(isBilibiliOwnedHost("www.bilibili.com")).toBe(true);
+    expect(isBilibiliOwnedHost("player.bilibili.com")).toBe(true);
+    expect(isBilibiliOwnedHost("notbilibili.com")).toBe(false);
+  });
+
+  it("chooses the Bilibili adapter on Bilibili hosts with a page player", () => {
+    const { video } = createManagedBilibiliVideo();
+    const adapter = createPlaybackAdapter(video, "www.bilibili.com");
+
+    expect(adapter.kind).toBe("bilibili");
+    expect(adapter.snapshot()).toMatchObject({
+      currentTime: 42,
+      duration: 120,
+      hasPlaybackError: false,
+      isLoading: false,
+      isStable: true,
+      paused: false,
+      phase: "playing",
+      playbackRate: 1.25
+    });
+  });
+
+  it("marks seeking Bilibili snapshots as buffering", () => {
+    const { video } = createManagedBilibiliVideo({ seeking: true });
+    const adapter = createPlaybackAdapter(video, "www.bilibili.com");
+
+    expect(adapter.snapshot()).toMatchObject({
+      isLoading: true,
+      isStable: false,
+      paused: false,
+      phase: "buffering"
+    });
+  });
+
+  it("seeks and pauses Bilibili through the player API", async () => {
+    const { player, rawCurrentTimeSetter, video } = createManagedBilibiliVideo({ paused: false });
+    const adapter = createPlaybackAdapter(video, "www.bilibili.com");
+
+    adapter.seek(50);
+    adapter.pause();
+    await adapter.play();
+    adapter.setPlaybackRate(1.5);
+
+    expect(player.seek).toHaveBeenCalledWith(50);
+    expect(player.pause).toHaveBeenCalledTimes(1);
+    expect(player.play).toHaveBeenCalledTimes(1);
+    expect(player.setPlaybackRate).toHaveBeenCalledWith(1.5);
+    expect(rawCurrentTimeSetter).not.toHaveBeenCalled();
+  });
+
+  it("does not use the Bilibili adapter when the player owns a different video", () => {
+    const { rawCurrentTimeSetter, video } = createManagedBilibiliVideo();
+    const otherVideo = document.createElement("video");
+    window.player!.mediaElement = vi.fn(() => otherVideo);
+
+    const adapter = createBilibiliAdapter(video, "www.bilibili.com")
+      ?? createPlaybackAdapter(video, "example.com");
 
     expect(adapter.kind).toBe("html-video");
     adapter.seek(50);

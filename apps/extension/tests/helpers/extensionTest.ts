@@ -28,6 +28,13 @@ const extensionManifest = resolve(extensionPath, "manifest.json");
 const extensionLaunchArgs = [
   `--disable-extensions-except=${extensionPath}`,
   `--load-extension=${extensionPath}`,
+  // YouTube seeks are driven from multiple pages/contexts in e2e. Keep
+  // Chromium from throttling backgrounded media pages while another page is active.
+  "--autoplay-policy=no-user-gesture-required",
+  "--disable-background-media-suspend",
+  "--disable-background-timer-throttling",
+  "--disable-backgrounding-occluded-windows",
+  "--disable-renderer-backgrounding",
   // Live-site e2e pages need to reach the local debug server from HTTPS origins.
   "--disable-web-security",
   "--no-sandbox"

@@ -1,4 +1,4 @@
-export type PlaybackAdapterKind = "youtube" | "html-video";
+export type PlaybackAdapterKind = "bilibili" | "youtube" | "html-video";
 export type PlaybackPhase = "buffering" | "cued" | "ended" | "paused" | "playing" | "unstarted" | "unknown";
 
 export interface PlaybackSnapshot {

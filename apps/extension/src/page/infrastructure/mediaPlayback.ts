@@ -1,3 +1,4 @@
+import { createBilibiliAdapter } from "./playbackAdapters/bilibiliAdapter";
 import { createHtmlVideoAdapter } from "./playbackAdapters/htmlVideoAdapter";
 import type { PlaybackAdapter, PlaybackSnapshot } from "./playbackAdapters/types";
 import { createYouTubeAdapter } from "./playbackAdapters/youtubeAdapter";
@@ -13,7 +14,9 @@ export function createPlaybackAdapter(
   video: HTMLVideoElement,
   hostname = window.location.hostname
 ): PlaybackAdapter {
-  return createYouTubeAdapter(video, hostname) ?? createHtmlVideoAdapter(video);
+  return createYouTubeAdapter(video, hostname)
+    ?? createBilibiliAdapter(video, hostname)
+    ?? createHtmlVideoAdapter(video);
 }
 
 export function getPlaybackSnapshot(video: HTMLVideoElement): PlaybackSnapshot {
