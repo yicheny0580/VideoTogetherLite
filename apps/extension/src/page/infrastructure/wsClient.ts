@@ -1,26 +1,26 @@
 import type {
+  GetRoomPayload,
+  HostUpdatePayload,
+  JoinRoomPayload,
   Language,
+  MemberUpdatePayload,
   Room,
-  RoomResponse,
+  RoomSessionResponse,
   TimestampReplay,
-  UpdateMemberPayload,
-  UpdateRoomPayload,
+  WsRequest,
   WsResponse
 } from "@videotogether/shared";
 
 function toWsUrl(httpUrl: string, language: Language): string {
   const url = new URL(httpUrl);
   url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
-  url.pathname = "/ws";
+  url.pathname = "/api/v1/ws";
   url.search = `?language=${language}`;
   return url.toString();
 }
 
-function roomResponseToRoom(response: RoomResponse | Room | undefined): Room | null {
-  if (!response) {
-    return null;
-  }
-  return ("data" in response && response.data ? response.data : response) as Room;
+function roomResponseToRoom(response: RoomSessionResponse | undefined): Room | null {
+  return response?.room ?? null;
 }
 
 export class VideoTogetherWsClient {
@@ -30,12 +30,14 @@ export class VideoTogetherWsClient {
   private lastErrorMessage: string | null = null;
   private lastRoom: Room | null = null;
   private lastUpdateTime = 0;
+  private requestId = 0;
   private socket: WebSocket | null = null;
 
   constructor(
     private readonly language: Language,
     private readonly onRoom: (room: Room) => void,
-    private readonly onTimestamp: (timestamp: TimestampReplay) => void
+    private readonly onTimestamp: (timestamp: TimestampReplay) => void,
+    private readonly onSessionToken: (sessionToken: string) => void
   ) {}
 
   connect(host: string): void {
@@ -83,78 +85,96 @@ export class VideoTogetherWsClient {
     return this.lastRoom;
   }
 
-  joinRoom(name: string, password: string): void {
-    if (name === this.joinedName) {
+  isOpen(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN;
+  }
+
+  joinRoom(payload: JoinRoomPayload): void {
+    if (payload.name === this.joinedName) {
       return;
     }
     this.send({
-      data: { name, password },
-      method: "/room/join"
+      data: payload,
+      id: this.nextRequestId(),
+      type: "room.join"
     });
   }
 
-  updateMember(payload: UpdateMemberPayload): void {
+  requestRoom(payload: GetRoomPayload): void {
     this.send({
       data: payload,
-      method: "/room/update_member"
+      id: this.nextRequestId(),
+      type: "room.get"
     });
   }
 
-  updateRoom(payload: UpdateRoomPayload): void {
+  updateMember(payload: MemberUpdatePayload): void {
     this.send({
       data: payload,
-      method: "/room/update"
+      id: this.nextRequestId(),
+      type: "room.memberUpdate"
+    });
+  }
+
+  updateRoom(payload: HostUpdatePayload): void {
+    this.send({
+      data: payload,
+      id: this.nextRequestId(),
+      type: "room.hostUpdate"
     });
   }
 
   private handleMessage(raw: string): void {
-    for (const line of raw.split("\n")) {
-      if (line.trim() !== "") {
-        this.handleLine(line);
-      }
-    }
-  }
-
-  private handleLine(line: string): void {
-    const response = JSON.parse(line) as WsResponse<RoomResponse | TimestampReplay>;
-    if (response.errorMessage != null) {
+    const response = JSON.parse(raw) as WsResponse<RoomSessionResponse | TimestampReplay>;
+    if (response.type === "error" || response.error != null) {
       this.lastUpdateTime = Date.now() / 1000;
-      this.lastErrorMessage = response.errorMessage;
+      this.lastErrorMessage = response.error?.message ?? "Unknown websocket error";
       this.lastRoom = null;
       return;
     }
 
     this.lastErrorMessage = null;
-    if (response.method === "/room/join") {
-      const room = roomResponseToRoom(response.data as RoomResponse);
+    if (response.type === "room.join") {
+      const room = roomResponseToRoom(response.data as RoomSessionResponse);
       this.joinedName = room?.name ?? null;
     }
     if (
-      response.method === "/room/join"
-      || response.method === "/room/update"
-      || response.method === "/room/update_member"
+      response.type === "room.join"
+      || response.type === "room.get"
+      || response.type === "room.hostUpdate"
+      || response.type === "room.memberUpdate"
+      || response.type === "room.updated"
     ) {
-      const room = roomResponseToRoom(response.data as RoomResponse);
+      const data = response.data as RoomSessionResponse;
+      const room = roomResponseToRoom(data);
       if (!room) {
         return;
+      }
+      if (data.sessionToken) {
+        this.onSessionToken(data.sessionToken);
       }
       this.connectedToService = true;
       this.lastRoom = room;
       this.lastUpdateTime = Date.now() / 1000;
       this.onRoom(room);
     }
-    if (response.method === "replay_timestamp") {
+    if (response.type === "timestamp.replay") {
       this.onTimestamp(response.data as TimestampReplay);
     }
   }
 
-  private send(data: unknown): void {
+  private nextRequestId(): string {
+    this.requestId += 1;
+    return `${this.requestId}:${Date.now()}`;
+  }
+
+  private send(data: WsRequest): void {
     try {
       if (this.socket?.readyState === WebSocket.OPEN) {
         this.socket.send(JSON.stringify(data));
       }
     } catch {
-      // Best-effort channel; HTTP polling remains the fallback.
+      // Best-effort channel; HTTP requests remain the fallback.
     }
   }
 }

@@ -32,27 +32,28 @@ export class PageStateStore {
 
     const role = parseRole(getter("VideoTogetherRole"));
     const roomName = getter("VideoTogetherRoomName");
-    if (!roomName || role === null) {
+    const sessionToken = getter("VideoTogetherSessionToken");
+    if (!roomName || !sessionToken || role === null) {
       return null;
     }
 
     return {
-      password: getter("VideoTogetherPassword") || "",
       role,
       roomName,
+      sessionToken,
       timestamp,
       url: getter("VideoTogetherUrl") || linkWithoutState(currentLocation)
     };
   }
 
-  save(roomName: string, password: string, role: Role, link: string): void {
+  save(roomName: string, sessionToken: string, role: Role, link: string): void {
     if (role === Role.Null) {
       return;
     }
 
     sessionStorage.setItem("VideoTogetherUrl", link);
     sessionStorage.setItem("VideoTogetherRoomName", roomName);
-    sessionStorage.setItem("VideoTogetherPassword", password);
+    sessionStorage.setItem("VideoTogetherSessionToken", sessionToken);
     sessionStorage.setItem("VideoTogetherRole", String(role));
     sessionStorage.setItem("VideoTogetherTimestamp", String(Date.now() / 1000));
   }

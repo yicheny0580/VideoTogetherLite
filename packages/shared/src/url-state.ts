@@ -4,14 +4,15 @@ export const stateKeys = [
   "VideoTogetherUrl",
   "VideoTogetherRoomName",
   "VideoTogetherRole",
+  "VideoTogetherSessionToken",
   "VideoTogetherPassword",
   "VideoTogetherTimestamp"
 ] as const;
 
 export interface RoomState {
-  password: string;
   role: Role;
   roomName: string;
+  sessionToken: string;
   timestamp: number;
   url: string;
 }
@@ -24,13 +25,13 @@ export function linkWithoutState(link: string | URL | Location): string {
   return url.toString();
 }
 
-export function linkWithMemberState(link: string, roomName: string, password: string, role: Role): URL {
+export function linkWithMemberState(link: string, roomName: string, sessionToken: string, role: Role): URL {
   const url = new URL(link);
   const oldSearch = url.search;
   url.search = "";
   url.searchParams.set("VideoTogetherUrl", link);
   url.searchParams.set("VideoTogetherRoomName", roomName);
-  url.searchParams.set("VideoTogetherPassword", password);
+  url.searchParams.set("VideoTogetherSessionToken", sessionToken);
   url.searchParams.set("VideoTogetherRole", String(role));
   url.searchParams.set("VideoTogetherTimestamp", String(Date.now() / 1000));
 

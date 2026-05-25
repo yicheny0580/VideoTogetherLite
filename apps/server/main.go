@@ -4,14 +4,11 @@ import (
 	"crypto/tls"
 	"errors"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"strings"
 	"sync"
 	"time"
-
-	_ "net/http/pprof"
 )
 
 type certManager struct {
@@ -57,22 +54,16 @@ func (cm *certManager) start() {
 }
 
 func main() {
-	// go func() {
-	// 	log.Println(http.ListenAndServe("localhost:6060", nil))
-	// }()
-
-	rand.Seed(time.Now().UnixNano())
 	Init()
-	_ = os.WriteFile("admin_password.txt", []byte(adminPassword), 0644)
 	vtSrv := NewVideoTogetherService(time.Minute * 3)
 	server := newSlashFix(vtSrv)
 	if len(os.Args) <= 1 {
-		panic(http.ListenAndServe(":5001", server))
+		panic(newHTTPServer(":5001", server, nil).ListenAndServe())
 	}
 
 	switch strings.TrimSpace(os.Args[1]) {
 	case "debug":
-		panic(http.ListenAndServe("127.0.0.1:5001", server))
+		panic(newHTTPServer("127.0.0.1:5001", server, nil).ListenAndServe())
 	case "prod":
 		certFile := os.Getenv("CERT_FILE")
 		keyFile := os.Getenv("KEY_FILE")
@@ -95,15 +86,22 @@ func main() {
 			},
 		}
 
-		httpServer := &http.Server{
-			Addr:        ":5000",
-			Handler:     server,
-			TLSConfig:   tlsConfig,
-			IdleTimeout: 120 * time.Second,
-		}
+		httpServer := newHTTPServer(":5000", server, tlsConfig)
 
 		panic(httpServer.ListenAndServeTLS("", ""))
 	default:
 		panic("unknown env")
+	}
+}
+
+func newHTTPServer(addr string, handler http.Handler, tlsConfig *tls.Config) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		IdleTimeout:       120 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		TLSConfig:         tlsConfig,
+		WriteTimeout:      15 * time.Second,
 	}
 }

@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -12,10 +10,6 @@ import (
 
 	"github.com/gorilla/websocket"
 )
-
-var joinPanic = 0
-var updatePanic = 0
-var invalidBroadcast = 0
 
 func (h *slashFix) newWsHandler(hub *Hub) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -28,10 +22,8 @@ func (h *slashFix) newWsHandler(hub *Hub) http.HandlerFunc {
 			hub:       hub,
 			conn:      conn,
 			send:      make(chan []byte, 256),
-			isHost:    false,
 			vtContext: NewVtContext(language, r.RemoteAddr),
 		}
-		client.hub.register <- client
 		go client.writePump()
 		go client.readPump()
 	}
@@ -40,134 +32,88 @@ func (h *slashFix) newWsHandler(hub *Hub) http.HandlerFunc {
 func newWsHub(vtSrv *VideoTogetherService) *Hub {
 	return &Hub{
 		vtSrv:       vtSrv,
-		broadcast:   make(chan Broadcast),
-		register:    make(chan *Client),
-		unregister:  make(chan *Client),
-		roomClients: sync.Map{},
+		roomClients: map[string]map[*Client]bool{},
 	}
-}
-
-type BroadcastType int32
-
-const (
-	ALL     BroadcastType = 0
-	MEMBERS BroadcastType = 1
-	HOST    BroadcastType = 2
-)
-
-type Broadcast struct {
-	RoomName string
-	Type     BroadcastType
-	Message  interface{}
-}
-
-type WsRoomResponse struct {
-	Method string       `json:"method"`
-	Data   RoomResponse `json:"data"`
-}
-
-type RoomClients struct {
-	name    string
-	clients sync.Map
 }
 
 type Hub struct {
+	mu          sync.RWMutex
 	vtSrv       *VideoTogetherService
-	broadcast   chan Broadcast
-	register    chan *Client
-	unregister  chan *Client
-	roomClients sync.Map
-}
-
-func (h *Hub) getRoomClients(roomName string) *RoomClients {
-	rc, _ := h.roomClients.Load(roomName)
-	if rc != nil {
-		return rc.(*RoomClients)
-	}
-	rc, _ = h.roomClients.LoadOrStore(roomName, &RoomClients{
-		name:    roomName,
-		clients: sync.Map{},
-	})
-	return rc.(*RoomClients)
+	roomClients map[string]map[*Client]bool
 }
 
 func (h *Hub) run() {
 	cleanupTicker := time.NewTicker(5 * time.Minute)
 	defer cleanupTicker.Stop()
 
-	for {
-		select {
-		case <-cleanupTicker.C:
-			h.vtSrv.RemoveExpiredRooms()
-			h.roomClients.Range(func(key, _ any) bool {
-				if h.vtSrv.QueryRoom(key.(string)) == nil {
-					h.roomClients.Delete(key)
-				}
-				return true
-			})
-		case <-h.register:
-			continue
-		case client := <-h.unregister:
-			h.removeClientFromRoom(client.roomName, client)
-		case message := <-h.broadcast:
-			h.broadcastMessage(message)
-		}
+	for range cleanupTicker.C {
+		h.vtSrv.RemoveExpiredRooms()
+		h.cleanupExpiredRooms()
 	}
-}
-
-func (h *Hub) broadcastMessage(message Broadcast) {
-	b, err := json.Marshal(message.Message)
-	if err != nil {
-		fmt.Println("Encode json error: " + err.Error())
-		return
-	}
-	room := h.vtSrv.QueryRoom(message.RoomName)
-	if room == nil {
-		return
-	}
-
-	roomClients := h.getRoomClients(message.RoomName)
-	roomClients.clients.Range(func(key, value any) bool {
-		client := key.(*Client)
-		if client.isHost && !room.IsHost(client.lastTempUserId) {
-			return true
-		}
-		switch message.Type {
-		case MEMBERS:
-			if client.isHost {
-				return true
-			}
-		case HOST:
-			if !client.isHost {
-				return true
-			}
-		}
-		select {
-		case client.send <- b:
-		default:
-			h.removeClientFromRoom(message.RoomName, client)
-		}
-		return true
-	})
-}
-
-func (h *Hub) removeClientFromRoom(roomName string, c *Client) {
-	if roomName == "" {
-		return
-	}
-	rc := h.getRoomClients(roomName)
-	rc.clients.Delete(c)
-}
-
-func (h *Hub) isVaildClient(roomName string, c *Client) bool {
-	rc := h.getRoomClients(roomName)
-	value, ok := rc.clients.Load(c)
-	return ok && value == true
 }
 
 func (h *Hub) addClientToRoom(roomName string, c *Client) {
-	rc := h.getRoomClients(roomName)
-	rc.clients.Store(c, true)
+	if roomName == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if c.roomName != "" && c.roomName != roomName {
+		delete(h.roomClients[c.roomName], c)
+	}
+	c.roomName = roomName
+	clients := h.roomClients[roomName]
+	if clients == nil {
+		clients = map[*Client]bool{}
+		h.roomClients[roomName] = clients
+	}
+	clients[c] = true
+}
+
+func (h *Hub) removeClient(c *Client) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if c.roomName == "" {
+		return
+	}
+	delete(h.roomClients[c.roomName], c)
+}
+
+func (h *Hub) broadcastRoom(roomName string, response WsResponseMessage) {
+	b, err := json.Marshal(response)
+	if err != nil {
+		log.Printf("websocket encode error: %v", err)
+		return
+	}
+
+	h.mu.RLock()
+	clients := h.roomClients[roomName]
+	for client := range clients {
+		select {
+		case client.send <- b:
+		default:
+			go h.closeSlowClient(client)
+		}
+	}
+	h.mu.RUnlock()
+}
+
+func (h *Hub) closeSlowClient(c *Client) {
+	h.removeClient(c)
+	_ = c.conn.Close()
+}
+
+func (h *Hub) cleanupExpiredRooms() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	for roomName := range h.roomClients {
+		if !h.vtSrv.RoomExists(roomName) {
+			delete(h.roomClients, roomName)
+		}
+	}
 }
 
 const (
@@ -175,11 +121,6 @@ const (
 	pongWait       = 60 * time.Second
 	pingPeriod     = (pongWait * 9) / 10
 	maxMessageSize = 512 * 1024
-)
-
-var (
-	newline = []byte{'\n'}
-	space   = []byte{' '}
 )
 
 var upgrader = websocket.Upgrader{
@@ -191,254 +132,233 @@ var upgrader = websocket.Upgrader{
 }
 
 type Client struct {
-	hub            *Hub
-	conn           *websocket.Conn
-	send           chan []byte
-	roomName       string
-	lastTempUserId string
-	isHost         bool
-	vtContext      *VtContext
+	hub       *Hub
+	conn      *websocket.Conn
+	send      chan []byte
+	roomName  string
+	vtContext *VtContext
 }
 
 type WsRequestMessage struct {
-	Method string          `json:"method"`
-	Data   json.RawMessage `json:"data"`
+	Data json.RawMessage `json:"data"`
+	ID   string          `json:"id"`
+	Type string          `json:"type"`
 }
 
 type WsResponseMessage struct {
-	Method string      `json:"method"`
-	Data   interface{} `json:"data"`
+	Data interface{} `json:"data,omitempty"`
+	ID   string      `json:"id,omitempty"`
+	Type string      `json:"type"`
 }
 
-type JoinRoomRequest struct {
-	RoomName     string `json:"name"`
-	RoomPassword string `json:"password"`
-}
-
-type UpdateMemberRequest struct {
-	*Member
-	RoomName           string  `json:"roomName"`
-	RoomPassword       string  `json:"password"`
-	SendLocalTimestamp float64 `json:"sendLocalTimestamp"`
-}
-
-type UpdateRoomRequest struct {
-	*Room
-	TempUser           string  `json:"tempUser"`
-	Password           string  `json:"password"`
-	SendLocalTimestamp float64 `json:"sendLocalTimestamp"`
+type WsErrorResponse struct {
+	Error ErrorBody `json:"error"`
+	ID    string    `json:"id,omitempty"`
+	Type  string    `json:"type"`
 }
 
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		c.hub.removeClient(c)
 		c.conn.Close()
 	}()
 	c.conn.SetReadLimit(maxMessageSize)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+	c.conn.SetPongHandler(func(string) error {
+		c.conn.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 	for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("error: %v", err)
+				log.Printf("websocket read error: %v", err)
 			}
 			break
 		}
 
-		message = bytes.TrimSpace(bytes.Replace(message, newline, space, -1))
 		var req WsRequestMessage
 		if err = json.Unmarshal(message, &req); err != nil {
-			c.reply("", nil, errors.New("invalid data"))
+			c.replyError("", newAppError(errInvalidRequest, "invalid JSON message"))
 			continue
 		}
 
-		switch req.Method {
-		case "/room/join":
+		switch req.Type {
+		case "room.join":
 			c.joinRoom(&req)
-		case "/room/update":
+		case "room.get":
+			c.getRoom(&req)
+		case "room.hostUpdate":
 			c.updateRoom(&req)
-		case "/room/update_member":
+		case "room.memberUpdate":
 			c.updateMember(&req)
 		default:
-			c.reply(req.Method, nil, errors.New("unknown method"))
+			c.replyError(req.ID, newAppError(errInvalidRequest, "unknown message type"))
 		}
 	}
 }
 
-func (c *Client) sendBroadcast(broadcast *Broadcast) {
-	if c.roomName == "" {
-		invalidBroadcast++
+func (c *Client) joinRoom(rawReq *WsRequestMessage) {
+	var req joinRoomRequest
+	if err := json.Unmarshal(rawReq.Data, &req); err != nil {
+		c.replyError(rawReq.ID, newAppError(errInvalidRequest, "invalid data"))
 		return
 	}
-	room := c.hub.vtSrv.QueryRoom(c.roomName)
-	if room == nil {
-		invalidBroadcast++
+
+	result, err := c.hub.vtSrv.JoinRoom(c.vtContext, JoinRoomInput{
+		Password: req.Password,
+		RoomName: req.Name,
+		UserID:   req.UserID,
+	})
+	if err != nil {
+		c.replyError(rawReq.ID, err)
 		return
 	}
-	if c.isHost && !room.IsHost(c.lastTempUserId) {
-		invalidBroadcast++
-		return
-	}
-	if !c.hub.isVaildClient(c.roomName, c) {
-		invalidBroadcast++
-		return
-	}
-	c.hub.broadcast <- *broadcast
+	c.hub.addClientToRoom(req.Name, c)
+	c.replyRoom(rawReq.ID, rawReq.Type, result)
 }
 
-func (c *Client) joinRoom(rawReq *WsRequestMessage) {
-	var req JoinRoomRequest
+func (c *Client) getRoom(rawReq *WsRequestMessage) {
+	var req getRoomRequest
 	if err := json.Unmarshal(rawReq.Data, &req); err != nil {
-		c.reply(rawReq.Method, nil, errors.New("invalid data"))
-		return
-	}
-	roomPw := GetMD5Hash(req.RoomPassword)
-
-	room := c.hub.vtSrv.QueryRoom(req.RoomName)
-	if room == nil {
-		c.reply(rawReq.Method, nil, errors.New(GetErrorMessage(c.vtContext.Language).RoomNotExist))
-		return
-	}
-	if !room.HasAccess(roomPw) {
-		c.reply(rawReq.Method, nil, errors.New(GetErrorMessage(c.vtContext.Language).WrongPassword))
+		c.replyError(rawReq.ID, newAppError(errInvalidRequest, "invalid data"))
 		return
 	}
 
-	if c.roomName != "" && c.roomName != req.RoomName {
-		joinPanic++
-		c.conn.Close()
+	result, err := c.hub.vtSrv.GetRoom(c.vtContext, GetRoomInput{
+		RoomName:     req.Name,
+		SessionToken: req.SessionToken,
+	})
+	if err != nil {
+		c.replyError(rawReq.ID, err)
 		return
 	}
-
-	c.roomName = req.RoomName
-	c.hub.addClientToRoom(req.RoomName, c)
-	c.reply(rawReq.Method, RoomResponse{
-		TimestampResponse: &TimestampResponse{Timestamp: c.hub.vtSrv.Timestamp()},
-		Room:              room,
-	}, nil)
+	c.hub.addClientToRoom(req.Name, c)
+	c.replyRoom(rawReq.ID, rawReq.Type, result)
 }
 
 func (c *Client) updateMember(rawReq *WsRequestMessage) {
 	startTime := Timestamp()
-	var req UpdateMemberRequest
+	var req memberUpdateRequest
 	if err := json.Unmarshal(rawReq.Data, &req); err != nil {
-		c.reply(rawReq.Method, nil, errors.New("invalid data"))
-		return
-	}
-	roomPw := GetMD5Hash(req.RoomPassword)
-	room := c.hub.vtSrv.QueryRoom(req.RoomName)
-	if room == nil {
-		c.reply(rawReq.Method, nil, errors.New(GetErrorMessage(c.vtContext.Language).RoomNotExist))
-		return
-	}
-	if !room.HasAccess(roomPw) {
-		c.reply(rawReq.Method, nil, errors.New(GetErrorMessage(c.vtContext.Language).WrongPassword))
+		c.replyError(rawReq.ID, newAppError(errInvalidRequest, "invalid data"))
 		return
 	}
 
-	needNotification := room.UpdateMember(*req.Member)
-	if needNotification {
-		c.sendBroadcast(&Broadcast{
-			RoomName: room.Name,
-			Type:     ALL,
-			Message: WsRoomResponse{
-				Method: rawReq.Method,
-				Data: RoomResponse{
-					TimestampResponse: &TimestampResponse{Timestamp: c.hub.vtSrv.Timestamp()},
-					Room:              room,
-				},
-			},
-		})
+	result, needNotification, err := c.hub.vtSrv.UpdateMember(c.vtContext, MemberUpdateInput{
+		CurrentURL:         req.CurrentURL,
+		IsLoading:          req.IsLoading,
+		RoomName:           req.RoomName,
+		SendLocalTimestamp: req.SendLocalTimestamp,
+		SessionToken:       req.SessionToken,
+		UserID:             req.UserID,
+	})
+	if err != nil {
+		c.replyError(rawReq.ID, err)
+		return
 	}
-	c.replyTimestamp(req.SendLocalTimestamp, startTime, Timestamp())
+	c.hub.addClientToRoom(req.RoomName, c)
+	c.replyRoom(rawReq.ID, rawReq.Type, result)
+	c.replyTimestamp(rawReq.ID, req.SendLocalTimestamp, startTime, Timestamp())
+	if needNotification {
+		c.hub.broadcastRoom(req.RoomName, roomUpdatedMessage(result))
+	}
 }
 
 func (c *Client) updateRoom(rawReq *WsRequestMessage) {
 	startTime := Timestamp()
-	var req UpdateRoomRequest
+	var req hostUpdateRequest
 	if err := json.Unmarshal(rawReq.Data, &req); err != nil {
-		c.reply(rawReq.Method, nil, errors.New("invalid data"))
+		c.replyError(rawReq.ID, newAppError(errInvalidRequest, "invalid data"))
 		return
 	}
-	roomPw := GetMD5Hash(req.Password)
-
-	if c.roomName != "" && c.roomName != req.Room.Name {
-		updatePanic++
-		c.conn.Close()
+	if err := validateHostUpdate(req); err != nil {
+		c.replyError(rawReq.ID, err)
 		return
 	}
-	c.roomName = req.Room.Name
 
-	room, err := c.hub.vtSrv.GetAndCheckUpdatePermissionsOfRoom(c.vtContext, req.Name, roomPw, req.TempUser)
+	result, err := c.hub.vtSrv.HostUpdateRoom(c.vtContext, HostUpdateInput{
+		CurrentTime:          req.CurrentTime,
+		Duration:             req.Duration,
+		LastUpdateClientTime: req.LastUpdateClientTime,
+		Password:             req.Password,
+		Paused:               req.Paused,
+		PlaybackRate:         req.PlaybackRate,
+		Protected:            req.Protected,
+		RoomName:             req.Name,
+		SendLocalTimestamp:   req.SendLocalTimestamp,
+		SessionToken:         req.SessionToken,
+		URL:                  req.URL,
+		UserID:               req.UserID,
+		VideoTitle:           req.VideoTitle,
+	})
 	if err != nil {
-		c.reply(rawReq.Method, nil, err)
+		c.replyError(rawReq.ID, err)
 		return
 	}
-	c.lastTempUserId = req.TempUser
+	c.hub.addClientToRoom(req.Name, c)
+	c.replyRoom(rawReq.ID, rawReq.Type, result)
+	c.replyTimestamp(rawReq.ID, req.SendLocalTimestamp, startTime, Timestamp())
+	c.hub.broadcastRoom(req.Name, roomUpdatedMessage(result))
+}
 
-	room.PlaybackRate = req.PlaybackRate
-	room.CurrentTime = req.CurrentTime
-	room.Paused = req.Paused
-	room.Url = req.Url
-	room.LastUpdateClientTime = req.LastUpdateClientTime
-	room.Duration = req.Duration
-	room.LastUpdateServerTime = c.hub.vtSrv.Timestamp()
-	room.Protected = req.Protected
-	room.VideoTitle = req.VideoTitle
+func roomUpdatedMessage(result RoomSessionResult) WsResponseMessage {
+	return WsResponseMessage{
+		Type: "room.updated",
+		Data: RoomSessionResponse{
+			Room:      result.Room,
+			Timestamp: result.Timestamp,
+		},
+	}
+}
 
-	c.isHost = true
-	c.roomName = room.Name
-	c.hub.addClientToRoom(room.Name, c)
-	c.sendBroadcast(&Broadcast{
-		RoomName: room.Name,
-		Type:     ALL,
-		Message: WsRoomResponse{
-			Method: rawReq.Method,
-			Data: RoomResponse{
-				TimestampResponse: &TimestampResponse{Timestamp: c.hub.vtSrv.Timestamp()},
-				Room:              room,
-			},
+func (c *Client) replyRoom(id, messageType string, result RoomSessionResult) {
+	c.reply(WsResponseMessage{
+		ID:   id,
+		Type: messageType,
+		Data: RoomSessionResponse{
+			Room:         result.Room,
+			SessionToken: result.SessionToken,
+			Timestamp:    result.Timestamp,
 		},
 	})
-	c.replyTimestamp(req.SendLocalTimestamp, startTime, Timestamp())
 }
 
-type WsErrorResponse struct {
-	Method       string `json:"method"`
-	ErrorMessage string `json:"errorMessage"`
+func (c *Client) replyTimestamp(id string, sl float64, rs float64, ss float64) {
+	c.reply(WsResponseMessage{
+		ID:   id,
+		Type: "timestamp.replay",
+		Data: TimestampReplayResponse{
+			SendLocalTimestamp:     sl,
+			ReceiveServerTimestamp: rs,
+			SendServerTimestamp:    ss,
+		},
+	})
 }
 
-func (c *Client) replyTimestamp(sl float64, rs float64, ss float64) {
-	c.reply("replay_timestamp", TimestampV2Response{
-		SendLocalTimestamp:     sl,
-		ReceiveServerTimestamp: rs,
-		SendServerTimestamp:    ss,
-	}, nil)
-}
-
-func (c *Client) reply(method string, data interface{}, err error) {
-	errFn := func(err error) {
-		b, _ := json.Marshal(WsErrorResponse{
-			Method:       method,
-			ErrorMessage: err.Error(),
-		})
-		c.send <- b
+func (c *Client) replyError(id string, err error) {
+	var appErr *appError
+	if !errors.As(err, &appErr) {
+		appErr = newAppError("internal_error", err.Error())
 	}
+	b, _ := json.Marshal(WsErrorResponse{
+		ID:   id,
+		Type: "error",
+		Error: ErrorBody{
+			Code:    appErr.Code,
+			Message: appErr.Message,
+		},
+	})
+	c.send <- b
+}
 
+func (c *Client) reply(response WsResponseMessage) {
+	b, err := json.Marshal(response)
 	if err != nil {
-		errFn(err)
+		c.replyError(response.ID, err)
 		return
 	}
-
-	if b, err := json.Marshal(WsResponseMessage{
-		Method: method,
-		Data:   data,
-	}); err != nil {
-		errFn(err)
-	} else {
-		c.send <- b
-	}
+	c.send <- b
 }
 
 func (c *Client) writePump() {
@@ -456,19 +376,7 @@ func (c *Client) writePump() {
 				return
 			}
 
-			w, err := c.conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				return
-			}
-			w.Write(message)
-
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				w.Write(newline)
-				w.Write(<-c.send)
-			}
-
-			if err := w.Close(); err != nil {
+			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
 			}
 		case <-ticker.C:

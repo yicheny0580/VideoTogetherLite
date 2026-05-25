@@ -5,6 +5,7 @@ declare global {
     VideoTogetherLoading?: boolean;
     VideoTogetherStorage?: {
       PasswordProtectedRoom?: boolean;
+      WaitForLoading?: boolean;
       WaitForLoadding?: boolean;
     };
     videoTogetherExtension?: VideoTogetherController | null;

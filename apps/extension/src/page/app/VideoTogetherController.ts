@@ -1,23 +1,16 @@
-import { Role, calculateRealCurrent, createTimeSyncState, getLocalTimestamp, linkWithMemberState, linkWithoutState, updateTimeSync, type Language, type Room } from "@videotogether/shared";
+import { Role, createTimeSyncState, getLocalTimestamp, linkWithMemberState, linkWithoutState, updateTimeSync, type HostUpdatePayload, type Language, type MemberUpdatePayload, type Room, type RoomSessionResponse } from "@videotogether/shared";
 
 import { translate, type LocaleKey } from "../../i18n/messages";
 import { VideoTogetherApiClient } from "../infrastructure/httpClient";
 import { PageStateStore } from "../infrastructure/pageStateStore";
 import { VideoTogetherWsClient } from "../infrastructure/wsClient";
-import { generateUUID, isVideoLoaded, VideoRegistry } from "../infrastructure/videoRegistry";
+import { isVideoLoaded, VideoRegistry } from "../infrastructure/videoRegistry";
 import { getServiceHost, stateMaxAgeSeconds } from "./config";
+import { generateTempUserId, getDisplayTimeText, isRoomProtected, isWaitForLoadingEnabled } from "./controllerUtils";
+import { initialPanelState, type PanelState, type StatusTone } from "./panelState";
+import { syncVideoToRoom } from "./videoSync";
 
-export type StatusTone = "default" | "danger" | "success";
-
-export interface PanelState {
-  inRoom: boolean;
-  memberCount: number;
-  password: string;
-  role: Role;
-  roomName: string;
-  statusText: string;
-  statusTone: StatusTone;
-}
+export type { PanelState, StatusTone } from "./panelState";
 
 type Listener = () => void;
 
@@ -27,24 +20,17 @@ export class VideoTogetherController {
   private lastScheduledTaskTs = 0;
   private readonly listeners = new Set<Listener>();
   private readonly stateStore = new PageStateStore(stateMaxAgeSeconds);
-  private tempUser = this.generateTempUserId();
+  private sessionToken = "";
+  private tempUser = generateTempUserId();
   private timer: number | undefined;
   private timeSync = createTimeSyncState();
   private url = "";
-  private waitForLoadding = false;
-  private playAfterLoadding = false;
+  private waitForLoading = false;
+  private playAfterLoading = false;
   private readonly videoRegistry: VideoRegistry;
   private readonly wsClient: VideoTogetherWsClient;
 
-  private panelState: PanelState = {
-    inRoom: false,
-    memberCount: 0,
-    password: "",
-    role: Role.Null,
-    roomName: "",
-    statusText: "",
-    statusTone: "default"
-  };
+  private panelState: PanelState = initialPanelState("");
 
   constructor(
     private readonly language: Language,
@@ -72,7 +58,8 @@ export class VideoTogetherController {
           replay.sendLocalTimestamp,
           now - replay.sendServerTimestamp + replay.receiveServerTimestamp
         );
-      }
+      },
+      (sessionToken) => this.setSessionToken(sessionToken)
     );
     this.videoRegistry = new VideoRegistry(() => void this.scheduledTask());
     this.panelState.statusText = this.message("global_notification");
@@ -86,7 +73,8 @@ export class VideoTogetherController {
       return;
     }
 
-    this.tempUser = this.generateTempUserId();
+    this.tempUser = generateTempUserId();
+    this.sessionToken = "";
     this.url = linkWithoutState(window.location);
     this.enterRoom(name, password, Role.Master);
   }
@@ -100,19 +88,12 @@ export class VideoTogetherController {
 
   exitRoom(): void {
     this.wsClient.disconnect();
+    this.sessionToken = "";
     this.url = "";
-    this.waitForLoadding = false;
-    this.playAfterLoadding = false;
+    this.waitForLoading = false;
+    this.playAfterLoading = false;
     this.stateStore.clear();
-    this.setPanelState({
-      inRoom: false,
-      memberCount: 0,
-      password: "",
-      role: Role.Null,
-      roomName: "",
-      statusText: this.message("global_notification"),
-      statusTone: "default"
-    });
+    this.setPanelState(initialPanelState(this.message("global_notification")));
   }
 
   getPanelState = (): PanelState => this.panelState;
@@ -123,7 +104,8 @@ export class VideoTogetherController {
       return;
     }
 
-    this.tempUser = this.generateTempUserId();
+    this.tempUser = generateTempUserId();
+    this.sessionToken = "";
     this.enterRoom(name, password, Role.Member);
   }
 
@@ -145,19 +127,35 @@ export class VideoTogetherController {
       return;
     }
 
-    this.setWaitForLoadding(room.waitForLoadding);
+    this.setWaitForLoading(room.waitForLoading);
     this.setPanelState({ memberCount: room.memberCount ?? 0 });
   }
 
-  private async getRoom(name: string, password: string): Promise<Room> {
-    this.wsClient.joinRoom(name, password);
-    const wsRoom = this.wsClient.getRoom();
-    return wsRoom ?? await this.apiClient.getRoom(name, password, this.tempUser);
-  }
+  private async getRoom(): Promise<Room> {
+    if (this.sessionToken === "") {
+      const joined = await this.apiClient.joinRoom({
+        name: this.panelState.roomName,
+        password: this.panelState.password,
+        userId: this.tempUser
+      });
+      this.applyRoomSession(joined);
+    }
 
-  private getDisplayTimeText(): string {
-    const date = new Date();
-    return `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
+    this.wsClient.requestRoom({
+      name: this.panelState.roomName,
+      sessionToken: this.sessionToken
+    });
+    const wsRoom = this.wsClient.getRoom();
+    if (wsRoom) {
+      return wsRoom;
+    }
+
+    const response = await this.apiClient.getRoom({
+      name: this.panelState.roomName,
+      sessionToken: this.sessionToken
+    });
+    this.applyRoomSession(response);
+    return response.room;
   }
 
   private getMainPageUrl(): string {
@@ -173,14 +171,14 @@ export class VideoTogetherController {
       throw new Error(this.message("no_video_in_this_page"));
     }
 
-    if (this.waitForLoadding) {
+    if (this.waitForLoading) {
       if (!video.paused) {
         video.pause();
-        this.playAfterLoadding = true;
+        this.playAfterLoading = true;
       }
-    } else if (this.playAfterLoadding) {
+    } else if (this.playAfterLoading) {
       await video.play();
-      this.playAfterLoadding = false;
+      this.playAfterLoading = false;
     }
 
     const paused = isVideoLoaded(video) ? video.paused : true;
@@ -194,18 +192,18 @@ export class VideoTogetherController {
     );
     this.applyRoomInfo(room);
     this.saveState();
-    this.updateStatus(`${this.message("sync_success")} ${this.getDisplayTimeText()}`, "success");
+    this.updateStatus(`${this.message("sync_success")} ${getDisplayTimeText()}`, "success");
   }
 
   private async memberTask(): Promise<void> {
-    const room = await this.getRoom(this.panelState.roomName, this.panelState.password);
+    const room = await this.getRoom();
     this.applyRoomInfo(room);
     const nextUrl = room.url;
     if (nextUrl && nextUrl !== this.url) {
       window.location.href = linkWithMemberState(
         nextUrl,
         this.panelState.roomName,
-        this.panelState.password,
+        this.sessionToken,
         Role.Member
       ).toString();
       return;
@@ -234,10 +232,11 @@ export class VideoTogetherController {
       return;
     }
 
+    this.sessionToken = state.sessionToken;
     this.url = state.url;
     this.setPanelState({
       inRoom: true,
-      password: state.password,
+      password: "",
       role: state.role,
       roomName: state.roomName
     });
@@ -274,10 +273,10 @@ export class VideoTogetherController {
   }
 
   private saveState(): void {
-    if (window.self === window.top) {
+    if (window.self === window.top && this.sessionToken !== "") {
       this.stateStore.save(
         this.panelState.roomName,
-        this.panelState.password,
+        this.sessionToken,
         this.panelState.role,
         this.url
       );
@@ -292,41 +291,31 @@ export class VideoTogetherController {
   }
 
   private async syncMemberVideo(room: Room, video: HTMLVideoElement): Promise<void> {
-    const realCurrent = calculateRealCurrent(room, getLocalTimestamp(this.timeSync));
-    if (!room.paused && Math.abs(video.currentTime - realCurrent) > 1) {
-      video.currentTime = realCurrent;
-    } else if (room.paused && Math.abs(video.currentTime - room.currentTime) > 0.1) {
-      video.currentTime = room.currentTime;
+    await syncVideoToRoom(
+      room,
+      video,
+      getLocalTimestamp(this.timeSync),
+      this.message("need_to_play_manually")
+    );
+    if (this.sessionToken === "") {
+      return;
     }
 
-    if (video.paused !== room.paused) {
-      if (room.paused) {
-        video.pause();
-      } else {
-        await video.play();
-        if (video.paused) {
-          throw new Error(this.message("need_to_play_manually"));
-        }
-      }
-    }
-
-    if (video.playbackRate !== room.playbackRate) {
-      try {
-        video.playbackRate = Number.parseFloat(String(room.playbackRate));
-      } catch {
-        // Some hosts block playbackRate updates.
-      }
-    }
-
-    this.wsClient.updateMember({
+    const payload: MemberUpdatePayload = {
       currentUrl: this.getMainPageUrl(),
-      isLoadding: !isVideoLoaded(video),
-      password: this.panelState.password,
+      isLoading: !isVideoLoaded(video),
       roomName: this.panelState.roomName,
       sendLocalTimestamp: Date.now() / 1000,
+      sessionToken: this.sessionToken,
       userId: this.tempUser
-    });
-    this.updateStatus(`${this.message("sync_success")} ${this.getDisplayTimeText()}`, "success");
+    };
+    if (this.wsClient.isOpen()) {
+      this.wsClient.updateMember(payload);
+    } else {
+      const response = await this.apiClient.updateMember(payload);
+      this.applyRoomSession(response);
+    }
+    this.updateStatus(`${this.message("sync_success")} ${getDisplayTimeText()}`, "success");
   }
 
   private async syncTimeWithServer(): Promise<void> {
@@ -334,7 +323,7 @@ export class VideoTogetherController {
     this.httpSucc = true;
   }
 
-  private updateRoom(
+  private async updateRoom(
     url: string,
     playbackRate: number,
     currentTime: number,
@@ -342,23 +331,33 @@ export class VideoTogetherController {
     duration: number,
     localTimestamp: number
   ): Promise<Room> {
-    const payload = {
+    const payload: HostUpdatePayload = {
       currentTime,
       duration,
       lastUpdateClientTime: localTimestamp,
       name: this.panelState.roomName,
-      password: this.panelState.password,
       paused,
       playbackRate,
-      protected: this.isRoomProtected(),
+      protected: isRoomProtected(),
       sendLocalTimestamp: Date.now() / 1000,
-      tempUser: this.tempUser,
       url,
+      userId: this.tempUser,
       videoTitle: document.title
     };
-    this.wsClient.updateRoom(payload);
-    const wsRoom = this.wsClient.getRoom();
-    return wsRoom ? Promise.resolve(wsRoom) : this.apiClient.updateRoom(payload);
+    if (this.sessionToken !== "") {
+      payload.sessionToken = this.sessionToken;
+      this.wsClient.updateRoom(payload);
+      const wsRoom = this.wsClient.getRoom();
+      if (wsRoom) {
+        return wsRoom;
+      }
+    } else {
+      payload.password = this.panelState.password;
+    }
+
+    const response = await this.apiClient.updateRoom(payload);
+    this.applyRoomSession(response);
+    return response.room;
   }
 
   private updateStatus(statusText: string, statusTone: StatusTone): void {
@@ -376,21 +375,25 @@ export class VideoTogetherController {
       role,
       roomName: name
     });
-    this.saveState();
     void this.scheduledTask();
   }
 
-  private generateTempUserId(): string {
-    return `${generateUUID()}:${Date.now() / 1000}`;
+  private applyRoomSession(response: RoomSessionResponse): void {
+    if (response.sessionToken) {
+      this.setSessionToken(response.sessionToken);
+    }
+    this.applyRoomInfo(response.room);
   }
 
-  private isRoomProtected(): boolean {
-    return window.VideoTogetherStorage === undefined
-      || window.VideoTogetherStorage.PasswordProtectedRoom !== false;
+  private setSessionToken(sessionToken: string): void {
+    if (sessionToken === "" || sessionToken === this.sessionToken) {
+      return;
+    }
+    this.sessionToken = sessionToken;
+    this.saveState();
   }
 
-  private setWaitForLoadding(value: boolean): void {
-    const enabled = window.VideoTogetherStorage?.WaitForLoadding !== false;
-    this.waitForLoadding = enabled && value;
+  private setWaitForLoading(value: boolean): void {
+    this.waitForLoading = isWaitForLoadingEnabled() && value;
   }
 }

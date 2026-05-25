@@ -1,5 +1,5 @@
 export interface Room {
-  beginLoaddingTimestamp: number;
+  beginLoadingTimestamp: number;
   currentTime: number;
   duration: number;
   lastUpdateClientTime: number;
@@ -13,7 +13,7 @@ export interface Room {
   url: string;
   uuid: string;
   videoTitle: string;
-  waitForLoadding: boolean;
+  waitForLoading: boolean;
 }
 
 export interface TimestampResponse {
@@ -21,12 +21,18 @@ export interface TimestampResponse {
   vtVersion?: number;
 }
 
-export interface ErrorResponse {
-  errorMessage?: string;
+export interface ApiErrorBody {
+  code: string;
+  message: string;
 }
 
-export interface RoomResponse extends ErrorResponse, Partial<TimestampResponse> {
-  data?: Room;
+export interface ApiErrorResponse {
+  error: ApiErrorBody;
+}
+
+export interface RoomSessionResponse extends Partial<TimestampResponse> {
+  room: Room;
+  sessionToken?: string;
 }
 
 export interface TimestampReplay {
@@ -35,38 +41,60 @@ export interface TimestampReplay {
   sendServerTimestamp: number;
 }
 
-export type WsMethod =
-  | "/room/join"
-  | "/room/update"
-  | "/room/update_member"
-  | "replay_timestamp";
+export type WsMessageType =
+  | "room.join"
+  | "room.get"
+  | "room.hostUpdate"
+  | "room.memberUpdate"
+  | "room.updated"
+  | "timestamp.replay"
+  | "error";
+
+export interface WsRequest<TData = unknown> {
+  data: TData;
+  id: string;
+  type: Exclude<WsMessageType, "room.updated" | "timestamp.replay" | "error">;
+}
 
 export interface WsResponse<TData = unknown> {
   data?: TData;
-  errorMessage?: string;
-  method: WsMethod | string;
+  error?: ApiErrorBody;
+  id?: string;
+  type: WsMessageType | string;
 }
 
-export interface UpdateRoomPayload {
+export interface JoinRoomPayload {
+  name: string;
+  password: string;
+  userId: string;
+}
+
+export interface GetRoomPayload {
+  name: string;
+  sessionToken: string;
+}
+
+export interface HostUpdatePayload {
   currentTime: number;
   duration: number;
   lastUpdateClientTime: number;
   name: string;
-  password: string;
+  password?: string;
   paused: boolean;
   playbackRate: number;
   protected: boolean;
   sendLocalTimestamp: number;
-  tempUser: string;
+  sessionToken?: string;
   url: string;
+  userId: string;
   videoTitle: string;
 }
 
-export interface UpdateMemberPayload {
+export interface MemberUpdatePayload {
   currentUrl: string;
-  isLoadding: boolean;
-  password: string;
+  isLoading: boolean;
   roomName: string;
   sendLocalTimestamp: number;
+  sessionToken: string;
   userId: string;
 }

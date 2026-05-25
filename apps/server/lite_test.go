@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -17,40 +19,43 @@ func newTestServer() (*httptest.Server, *VideoTogetherService) {
 	return httptest.NewServer(api), vtSrv
 }
 
-func TestRoomUpdateAndGet(t *testing.T) {
+func TestHostUpdateAndGetWithToken(t *testing.T) {
 	server, _ := newTestServer()
 	defer server.Close()
 
-	updateURL := server.URL + "/room/update?name=room-a&password=pw&playbackRate=1.25&currentTime=12.5&paused=false&url=https%3A%2F%2Fexample.test%2Fwatch&lastUpdateClientTime=100&duration=600&tempUser=host-1&protected=true&videoTitle=Example"
-	updateResp, err := server.Client().Get(updateURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer updateResp.Body.Close()
+	created := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
+		CurrentTime:          12.5,
+		Duration:             600,
+		LastUpdateClientTime: 100,
+		Name:                 "room-a",
+		Password:             "pw",
+		Paused:               false,
+		PlaybackRate:         1.25,
+		Protected:            true,
+		URL:                  "https://example.test/watch",
+		UserID:               "host-1",
+		VideoTitle:           "Example",
+	}, http.StatusOK)
 
-	var updated RoomResponse
-	if err := json.NewDecoder(updateResp.Body).Decode(&updated); err != nil {
-		t.Fatal(err)
+	if created.SessionToken == "" {
+		t.Fatal("expected host session token")
 	}
-	if updated.Name != "room-a" || updated.CurrentTime != 12.5 || updated.Paused {
-		t.Fatalf("unexpected updated room: %+v", updated.Room)
+	if created.Room.Name != "room-a" || created.Room.CurrentTime != 12.5 || created.Room.Paused {
+		t.Fatalf("unexpected updated room: %+v", created.Room)
 	}
-	if updated.Url != "https://example.test/watch" || !updated.Protected {
-		t.Fatalf("room URL/protection not stored: %+v", updated.Room)
+	if created.Room.URL != "https://example.test/watch" || !created.Room.Protected {
+		t.Fatalf("room URL/protection not stored: %+v", created.Room)
 	}
 
-	getResp, err := server.Client().Get(server.URL + "/room/get?name=room-a&password=pw")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer getResp.Body.Close()
-
-	var got RoomResponse
-	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
-		t.Fatal(err)
-	}
-	if got.Name != "room-a" || got.PlaybackRate != 1.25 {
+	got := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/get", getRoomRequest{
+		Name:         "room-a",
+		SessionToken: created.SessionToken,
+	}, http.StatusOK)
+	if got.Room.Name != "room-a" || got.Room.PlaybackRate != 1.25 {
 		t.Fatalf("unexpected fetched room: %+v", got.Room)
+	}
+	if got.SessionToken != "" {
+		t.Fatalf("get should not rotate token, got %q", got.SessionToken)
 	}
 }
 
@@ -58,23 +63,128 @@ func TestProtectedRoomRejectsWrongPassword(t *testing.T) {
 	server, _ := newTestServer()
 	defer server.Close()
 
-	_, err := server.Client().Get(server.URL + "/room/update?name=room-b&password=pw&playbackRate=1&currentTime=0&paused=true&url=https%3A%2F%2Fexample.test&lastUpdateClientTime=1&duration=100&tempUser=host-1&protected=true")
-	if err != nil {
-		t.Fatal(err)
+	postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
+		CurrentTime:          0,
+		Duration:             100,
+		LastUpdateClientTime: 1,
+		Name:                 "room-b",
+		Password:             "pw",
+		Paused:               true,
+		PlaybackRate:         1,
+		Protected:            true,
+		URL:                  "https://example.test",
+		UserID:               "host-1",
+	}, http.StatusOK)
+
+	body := postJSON[ErrorEnvelope](t, server, "/api/v1/rooms/join", joinRoomRequest{
+		Name:     "room-b",
+		Password: "wrong",
+		UserID:   "member-1",
+	}, http.StatusUnauthorized)
+	if body.Error.Code != errWrongPassword || body.Error.Message != GetErrorMessage("").WrongPassword {
+		t.Fatalf("unexpected error: %+v", body.Error)
+	}
+}
+
+func TestHostClaimInvalidatesOldHostToken(t *testing.T) {
+	server, _ := newTestServer()
+	defer server.Close()
+
+	first := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
+		CurrentTime:          1,
+		Duration:             100,
+		LastUpdateClientTime: 1,
+		Name:                 "room-c",
+		Password:             "pw",
+		Paused:               true,
+		PlaybackRate:         1,
+		Protected:            true,
+		URL:                  "https://example.test",
+		UserID:               "host-1",
+	}, http.StatusOK)
+	second := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
+		CurrentTime:          2,
+		Duration:             100,
+		LastUpdateClientTime: 2,
+		Name:                 "room-c",
+		Password:             "pw",
+		Paused:               false,
+		PlaybackRate:         1,
+		Protected:            true,
+		URL:                  "https://example.test",
+		UserID:               "host-2",
+	}, http.StatusOK)
+
+	postJSON[ErrorEnvelope](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
+		CurrentTime:          3,
+		Duration:             100,
+		LastUpdateClientTime: 3,
+		Name:                 "room-c",
+		Paused:               false,
+		PlaybackRate:         1,
+		Protected:            true,
+		SessionToken:         first.SessionToken,
+		URL:                  "https://example.test",
+		UserID:               "host-1",
+	}, http.StatusUnauthorized)
+
+	updated := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
+		CurrentTime:          4,
+		Duration:             100,
+		LastUpdateClientTime: 4,
+		Name:                 "room-c",
+		Paused:               false,
+		PlaybackRate:         1,
+		Protected:            true,
+		SessionToken:         second.SessionToken,
+		URL:                  "https://example.test",
+		UserID:               "host-2",
+	}, http.StatusOK)
+	if updated.Room.CurrentTime != 4 {
+		t.Fatalf("new host token did not update room: %+v", updated.Room)
+	}
+}
+
+func TestMemberUpdateChangesLoadingState(t *testing.T) {
+	server, _ := newTestServer()
+	defer server.Close()
+
+	host := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
+		CurrentTime:          10,
+		Duration:             120,
+		LastUpdateClientTime: 1,
+		Name:                 "room-d",
+		Password:             "pw",
+		Paused:               false,
+		PlaybackRate:         1,
+		Protected:            true,
+		URL:                  "https://example.test/watch",
+		UserID:               "host-1",
+	}, http.StatusOK)
+	member := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/join", joinRoomRequest{
+		Name:     "room-d",
+		Password: "pw",
+		UserID:   "member-1",
+	}, http.StatusOK)
+
+	updated := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/member-update", memberUpdateRequest{
+		CurrentURL:         "https://example.test/watch",
+		IsLoading:          true,
+		RoomName:           "room-d",
+		SendLocalTimestamp: 2,
+		SessionToken:       member.SessionToken,
+		UserID:             "member-1",
+	}, http.StatusOK)
+	if !updated.Room.WaitForLoading || updated.Room.MemberCount != 2 {
+		t.Fatalf("member loading data not reflected: %+v", updated.Room)
 	}
 
-	resp, err := server.Client().Get(server.URL + "/room/get?name=room-b&password=wrong")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	var body ErrorResponse
-	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
-		t.Fatal(err)
-	}
-	if body.ErrorMessage != GetErrorMessage("").WrongPassword {
-		t.Fatalf("expected wrong password error, got %q", body.ErrorMessage)
+	got := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/get", getRoomRequest{
+		Name:         "room-d",
+		SessionToken: host.SessionToken,
+	}, http.StatusOK)
+	if got.Room.BeginLoadingTimestamp == 0 {
+		t.Fatalf("expected loading timestamp after query: %+v", got.Room)
 	}
 }
 
@@ -82,7 +192,20 @@ func TestWebSocketRoomBroadcast(t *testing.T) {
 	server, _ := newTestServer()
 	defer server.Close()
 
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	host := postJSON[RoomSessionResponse](t, server, "/api/v1/rooms/host-update", hostUpdateRequest{
+		CurrentTime:          10,
+		Duration:             120,
+		LastUpdateClientTime: 1,
+		Name:                 "room-e",
+		Password:             "pw",
+		Paused:               true,
+		PlaybackRate:         1,
+		Protected:            true,
+		URL:                  "https://example.test/watch",
+		UserID:               "host-1",
+	}, http.StatusOK)
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/api/v1/ws"
 	hostConn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -95,29 +218,92 @@ func TestWebSocketRoomBroadcast(t *testing.T) {
 	}
 	defer memberConn.Close()
 
-	hostUpdate := `{"method":"/room/update","data":{"tempUser":"host-1","password":"pw","name":"room-c","playbackRate":1,"currentTime":10,"paused":true,"url":"https://example.test/watch","lastUpdateClientTime":1,"duration":120,"protected":true,"videoTitle":"Example","sendLocalTimestamp":1}}`
-	if err := hostConn.WriteMessage(websocket.TextMessage, []byte(hostUpdate)); err != nil {
-		t.Fatal(err)
-	}
-	readMethod(t, hostConn, "/room/update")
+	writeWS(t, memberConn, WsRequestMessage{
+		ID:   "join-1",
+		Type: "room.join",
+		Data: mustJSON(t, joinRoomRequest{Name: "room-e", Password: "pw", UserID: "member-1"}),
+	})
+	readWSType(t, memberConn, "room.join")
 
-	memberJoin := `{"method":"/room/join","data":{"name":"room-c","password":"pw"}}`
-	if err := memberConn.WriteMessage(websocket.TextMessage, []byte(memberJoin)); err != nil {
+	writeWS(t, hostConn, WsRequestMessage{
+		ID:   "update-1",
+		Type: "room.hostUpdate",
+		Data: mustJSON(t, hostUpdateRequest{
+			CurrentTime:          35,
+			Duration:             120,
+			LastUpdateClientTime: 2,
+			Name:                 "room-e",
+			Paused:               false,
+			PlaybackRate:         1,
+			Protected:            true,
+			SessionToken:         host.SessionToken,
+			URL:                  "https://example.test/watch",
+			UserID:               "host-1",
+			VideoTitle:           "Example",
+		}),
+	})
+	readWSType(t, hostConn, "room.hostUpdate")
+	msg := readWSType(t, memberConn, "room.updated")
+	var body RoomSessionResponse
+	if err := json.Unmarshal(msg.Data, &body); err != nil {
 		t.Fatal(err)
 	}
-	readMethod(t, memberConn, "/room/join")
-
-	hostUpdate = `{"method":"/room/update","data":{"tempUser":"host-1","password":"pw","name":"room-c","playbackRate":1,"currentTime":35,"paused":false,"url":"https://example.test/watch","lastUpdateClientTime":2,"duration":120,"protected":true,"videoTitle":"Example","sendLocalTimestamp":2}}`
-	if err := hostConn.WriteMessage(websocket.TextMessage, []byte(hostUpdate)); err != nil {
-		t.Fatal(err)
-	}
-	msg := readMethod(t, memberConn, "/room/update")
-	if msg.Data.Room.CurrentTime != 35 || msg.Data.Room.Paused {
-		t.Fatalf("unexpected broadcast room: %+v", msg.Data.Room)
+	if body.Room.CurrentTime != 35 || body.Room.Paused {
+		t.Fatalf("unexpected broadcast room: %+v", body.Room)
 	}
 }
 
-func readMethod(t *testing.T, conn *websocket.Conn, method string) WsRoomResponse {
+type wsTestMessage struct {
+	Data  json.RawMessage `json:"data"`
+	Error *ErrorBody      `json:"error"`
+	ID    string          `json:"id"`
+	Type  string          `json:"type"`
+}
+
+func postJSON[T any](t *testing.T, server *httptest.Server, path string, request interface{}, status int) T {
+	t.Helper()
+
+	body, err := json.Marshal(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := server.Client().Post(server.URL+path, "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != status {
+		t.Fatalf("expected HTTP %d, got %d", status, resp.StatusCode)
+	}
+
+	var decoded T
+	if err := json.NewDecoder(resp.Body).Decode(&decoded); err != nil {
+		t.Fatal(err)
+	}
+	return decoded
+}
+
+func mustJSON(t *testing.T, value interface{}) json.RawMessage {
+	t.Helper()
+	body, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return body
+}
+
+func writeWS(t *testing.T, conn *websocket.Conn, message WsRequestMessage) {
+	t.Helper()
+	body, err := json.Marshal(message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.WriteMessage(websocket.TextMessage, body); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readWSType(t *testing.T, conn *websocket.Conn, messageType string) wsTestMessage {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	if err := conn.SetReadDeadline(deadline); err != nil {
@@ -128,14 +314,15 @@ func readMethod(t *testing.T, conn *websocket.Conn, method string) WsRoomRespons
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, line := range strings.Split(string(body), "\n") {
-			var msg WsRoomResponse
-			if err := json.Unmarshal([]byte(line), &msg); err != nil {
-				continue
-			}
-			if msg.Method == method {
-				return msg
-			}
+		var msg wsTestMessage
+		if err := json.Unmarshal(body, &msg); err != nil {
+			t.Fatal(err)
+		}
+		if msg.Error != nil {
+			t.Fatalf("unexpected websocket error: %+v", *msg.Error)
+		}
+		if msg.Type == messageType {
+			return msg
 		}
 	}
 }

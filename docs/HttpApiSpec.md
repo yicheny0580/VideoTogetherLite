@@ -2,7 +2,18 @@
 
 The Go implementation lives in `apps/server`. TypeScript protocol types for the Chrome extension live in `packages/shared`.
 
-#### GET /timestamp
+All room APIs are under `/api/v1`, use JSON, and return either a success body or a structured error:
+
+```json
+{
+  "error": {
+    "code": "wrong_password",
+    "message": "Wrong Password"
+  }
+}
+```
+
+#### GET /api/v1/timestamp
 
 Returns server time and the current runtime version token.
 
@@ -13,62 +24,109 @@ Returns server time and the current runtime version token.
 }
 ```
 
-#### GET /room/get
+#### POST /api/v1/rooms/host-update
 
-Gets room playback state.
+Creates, claims, or updates a room as host. Initial create/claim sends `password`; later updates send `sessionToken`.
 
-| Parameter | Description |
-| --- | --- |
-| `name` | Room name |
-| `password` | Room password |
+```json
+{
+  "name": "room",
+  "password": "pw",
+  "userId": "host-1",
+  "playbackRate": 1,
+  "currentTime": 1.123,
+  "paused": false,
+  "url": "https://example.test/watch",
+  "lastUpdateClientTime": 1.123,
+  "duration": 600,
+  "protected": true,
+  "videoTitle": "Example",
+  "sendLocalTimestamp": 1.123
+}
+```
 
-#### GET /room/update
+#### POST /api/v1/rooms/join
 
-Creates or updates a room as the host.
+Joins an existing room as a member and returns a `sessionToken`.
 
-| Parameter | Description |
-| --- | --- |
-| `name` | Room name |
-| `password` | Room password |
-| `playbackRate` | Playback rate |
-| `currentTime` | Current video time |
-| `paused` | `true` or `false` |
-| `url` | Host page URL |
-| `lastUpdateClientTime` | Host client timestamp |
-| `duration` | Video duration |
-| `tempUser` | Host temporary user ID |
-| `protected` | `true` or `false` |
-| `videoTitle` | Page/video title |
+```json
+{
+  "name": "room",
+  "password": "pw",
+  "userId": "member-1"
+}
+```
+
+#### POST /api/v1/rooms/get
+
+Gets room playback state using a room session token.
+
+```json
+{
+  "name": "room",
+  "sessionToken": "..."
+}
+```
+
+#### POST /api/v1/rooms/member-update
+
+Updates member presence/loading state using a member session token.
+
+```json
+{
+  "roomName": "room",
+  "sessionToken": "...",
+  "userId": "member-1",
+  "currentUrl": "https://example.test/watch",
+  "isLoading": false,
+  "sendLocalTimestamp": 1.123
+}
+```
 
 Room responses include:
 
 ```json
 {
-  "name": "room",
-  "lastUpdateClientTime": 1.123,
-  "lastUpdateServerTime": 1.123,
-  "playbackRate": 1,
-  "currentTime": 1.123,
-  "paused": false,
-  "url": "https://example.test/watch",
-  "duration": 600,
-  "protected": true,
-  "videoTitle": "Example",
-  "uuid": "...",
-  "waitForLoadding": false,
-  "beginLoaddingTimestamp": 0,
-  "memberCount": 1,
+  "room": {
+    "name": "room",
+    "lastUpdateClientTime": 1.123,
+    "lastUpdateServerTime": 1.123,
+    "playbackRate": 1,
+    "currentTime": 1.123,
+    "paused": false,
+    "url": "https://example.test/watch",
+    "duration": 600,
+    "protected": true,
+    "videoTitle": "Example",
+    "uuid": "...",
+    "waitForLoading": false,
+    "beginLoadingTimestamp": 0,
+    "memberCount": 1
+  },
+  "sessionToken": "...",
   "timestamp": 1.123
 }
 ```
 
-#### GET /ws
+#### GET /api/v1/ws
 
 WebSocket endpoint for room updates.
 
-Supported methods:
+Client messages use:
 
-- `/room/join`
-- `/room/update`
-- `/room/update_member`
-- `replay_timestamp`
+```json
+{
+  "id": "1",
+  "type": "room.get",
+  "data": {}
+}
+```
+
+Supported message types:
+
+- `room.join`
+- `room.get`
+- `room.hostUpdate`
+- `room.memberUpdate`
+
+Server messages include direct responses with the request `id`, `room.updated` broadcasts, `timestamp.replay`, and structured `error` responses.

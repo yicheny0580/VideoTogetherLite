@@ -10,9 +10,9 @@ describe("url state helpers", () => {
   });
 
   it("wraps member state around a target URL", () => {
-    const url = linkWithMemberState("https://example.test/watch?x=1", "room", "pw", Role.Member);
+    const url = linkWithMemberState("https://example.test/watch?x=1", "room", "token", Role.Member);
     expect(url.searchParams.get("VideoTogetherRoomName")).toBe("room");
-    expect(url.searchParams.get("VideoTogetherPassword")).toBe("pw");
+    expect(url.searchParams.get("VideoTogetherSessionToken")).toBe("token");
     expect(url.searchParams.get("VideoTogetherRole")).toBe(String(Role.Member));
     expect(url.toString()).toContain("&x=1");
   });

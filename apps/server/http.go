@@ -2,32 +2,21 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log"
-	"math/rand"
+	"log/slog"
+	"math"
 	"net/http"
 	"strings"
 )
 
-var vtVersion = randInt(0, 1e9)
-var adminPassword = randomString(30)
+const maxJSONBodyBytes = 1 << 20
+
+var vtVersion = secureVersion()
 
 func Init() {
-	vtVersion = randInt(0, 1e9)
-	adminPassword = randomString(30)
-}
-
-func randomString(l int) string {
-	bytes := make([]byte, l)
-	for i := 0; i < l; i++ {
-		bytes[i] = byte(randInt(65, 90))
-	}
-	return string(bytes)
-}
-
-func randInt(min int, max int) int {
-	return min + rand.Intn(max-min)
+	vtVersion = secureVersion()
 }
 
 type slashFix struct {
@@ -41,13 +30,15 @@ func newSlashFix(vtSrv *VideoTogetherService) *slashFix {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/room/get", s.handleRoomGet)
-	mux.HandleFunc("/timestamp", s.handleTimestamp)
-	mux.HandleFunc("/room/update", s.handleRoomUpdate)
+	mux.HandleFunc("GET /api/v1/timestamp", s.handleTimestamp)
+	mux.HandleFunc("POST /api/v1/rooms/join", s.handleRoomJoin)
+	mux.HandleFunc("POST /api/v1/rooms/get", s.handleRoomGet)
+	mux.HandleFunc("POST /api/v1/rooms/host-update", s.handleHostUpdate)
+	mux.HandleFunc("POST /api/v1/rooms/member-update", s.handleMemberUpdate)
 
 	wsHub := newWsHub(vtSrv)
 	go wsHub.run()
-	mux.HandleFunc("/ws", s.newWsHandler(wsHub))
+	mux.HandleFunc("GET /api/v1/ws", s.newWsHandler(wsHub))
 
 	s.mux = mux
 	return s
@@ -60,87 +51,182 @@ func (h *slashFix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	r.URL.Path = strings.Replace(r.URL.Path, "//", "/", -1)
+	r.URL.Path = strings.ReplaceAll(r.URL.Path, "//", "/")
 	h.enableCors(w)
-	if r.Method == "OPTIONS" {
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	log.Printf("%s %s %s\n", r.RemoteAddr, r.Method, r.URL)
+	slog.Info("request", "remote", r.RemoteAddr, "method", r.Method, "path", r.URL.Path)
 	h.mux.ServeHTTP(w, r)
 }
 
 type TimestampResponse struct {
 	Timestamp float64 `json:"timestamp"`
-}
-
-type TimestampExtendedResponse struct {
-	Timestamp float64 `json:"timestamp"`
 	VtVersion int     `json:"vtVersion"`
 }
 
-type RoomResponse struct {
-	*Room
-	*TimestampResponse
+type RoomSessionResponse struct {
+	Room         Room    `json:"room"`
+	SessionToken string  `json:"sessionToken,omitempty"`
+	Timestamp    float64 `json:"timestamp"`
 }
 
-type TimestampV2Response struct {
+type TimestampReplayResponse struct {
 	SendLocalTimestamp     float64 `json:"sendLocalTimestamp"`
 	ReceiveServerTimestamp float64 `json:"receiveServerTimestamp"`
 	SendServerTimestamp    float64 `json:"sendServerTimestamp"`
 }
 
-func (h *slashFix) newRoomResponse(room *Room) *RoomResponse {
-	return &RoomResponse{
-		TimestampResponse: &TimestampResponse{Timestamp: h.vtSrv.Timestamp()},
-		Room:              room,
-	}
+type ErrorEnvelope struct {
+	Error ErrorBody `json:"error"`
 }
 
-func (h *slashFix) handleRoomUpdate(res http.ResponseWriter, req *http.Request) {
-	userId := req.URL.Query().Get("tempUser")
-	name := req.URL.Query().Get("name")
-	password := GetMD5Hash(req.URL.Query().Get("password"))
-	language := req.URL.Query().Get("language")
-
-	room, err := h.vtSrv.GetAndCheckUpdatePermissionsOfRoom(NewVtContext(language, req.RemoteAddr), name, password, userId)
-	if err != nil {
-		h.respondError(res, err.Error())
-		return
-	}
-
-	room.PlaybackRate = floatParam(req, "playbackRate", p(float64(1)))
-	room.CurrentTime = floatParam(req, "currentTime", nil)
-	room.Paused = req.URL.Query().Get("paused") != "false"
-	room.Url = req.URL.Query().Get("url")
-	room.LastUpdateClientTime = floatParam(req, "lastUpdateClientTime", nil)
-	room.Duration = floatParam(req, "duration", p(1e9))
-	room.LastUpdateServerTime = h.vtSrv.Timestamp()
-	room.Protected = req.URL.Query().Get("protected") == "true"
-	room.VideoTitle = req.URL.Query().Get("videoTitle")
-
-	h.JSON(res, 200, h.newRoomResponse(room))
+type ErrorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
-func (h *slashFix) handleRoomGet(res http.ResponseWriter, req *http.Request) {
-	password := GetMD5Hash(req.URL.Query().Get("password"))
-	name := req.URL.Query().Get("name")
-	language := req.URL.Query().Get("language")
-	room := h.vtSrv.QueryRoom(name)
-	if room == nil {
-		h.respondError(res, GetErrorMessage(language).RoomNotExist)
-		return
-	}
-	if !room.HasAccess(password) {
-		h.respondError(res, GetErrorMessage(language).WrongPassword)
-		return
-	}
-	h.JSON(res, 200, h.newRoomResponse(room))
+type joinRoomRequest struct {
+	Name     string `json:"name"`
+	Password string `json:"password"`
+	UserID   string `json:"userId"`
 }
 
-func (h *slashFix) handleTimestamp(res http.ResponseWriter, req *http.Request) {
-	h.JSON(res, 200, TimestampExtendedResponse{
+type getRoomRequest struct {
+	Name         string `json:"name"`
+	SessionToken string `json:"sessionToken"`
+}
+
+type hostUpdateRequest struct {
+	CurrentTime          float64 `json:"currentTime"`
+	Duration             float64 `json:"duration"`
+	LastUpdateClientTime float64 `json:"lastUpdateClientTime"`
+	Name                 string  `json:"name"`
+	Password             string  `json:"password,omitempty"`
+	Paused               bool    `json:"paused"`
+	PlaybackRate         float64 `json:"playbackRate"`
+	Protected            bool    `json:"protected"`
+	SendLocalTimestamp   float64 `json:"sendLocalTimestamp"`
+	SessionToken         string  `json:"sessionToken,omitempty"`
+	URL                  string  `json:"url"`
+	UserID               string  `json:"userId"`
+	VideoTitle           string  `json:"videoTitle"`
+}
+
+type memberUpdateRequest struct {
+	CurrentURL         string  `json:"currentUrl"`
+	IsLoading          bool    `json:"isLoading"`
+	RoomName           string  `json:"roomName"`
+	SendLocalTimestamp float64 `json:"sendLocalTimestamp"`
+	SessionToken       string  `json:"sessionToken"`
+	UserID             string  `json:"userId"`
+}
+
+func (h *slashFix) handleTimestamp(w http.ResponseWriter, _ *http.Request) {
+	h.JSON(w, http.StatusOK, TimestampResponse{
 		Timestamp: h.vtSrv.Timestamp(),
 		VtVersion: vtVersion,
+	})
+}
+
+func (h *slashFix) handleRoomJoin(w http.ResponseWriter, req *http.Request) {
+	var body joinRoomRequest
+	if !h.decodeJSON(w, req, &body) {
+		return
+	}
+	result, err := h.vtSrv.JoinRoom(NewVtContext(req.URL.Query().Get("language"), req.RemoteAddr), JoinRoomInput{
+		Password: body.Password,
+		RoomName: body.Name,
+		UserID:   body.UserID,
+	})
+	h.respondResult(w, result, err)
+}
+
+func (h *slashFix) handleRoomGet(w http.ResponseWriter, req *http.Request) {
+	var body getRoomRequest
+	if !h.decodeJSON(w, req, &body) {
+		return
+	}
+	result, err := h.vtSrv.GetRoom(NewVtContext(req.URL.Query().Get("language"), req.RemoteAddr), GetRoomInput{
+		RoomName:     body.Name,
+		SessionToken: body.SessionToken,
+	})
+	h.respondResult(w, result, err)
+}
+
+func (h *slashFix) handleHostUpdate(w http.ResponseWriter, req *http.Request) {
+	var body hostUpdateRequest
+	if !h.decodeJSON(w, req, &body) {
+		return
+	}
+	if err := validateHostUpdate(body); err != nil {
+		h.respondError(w, err)
+		return
+	}
+	result, err := h.vtSrv.HostUpdateRoom(NewVtContext(req.URL.Query().Get("language"), req.RemoteAddr), HostUpdateInput{
+		CurrentTime:          body.CurrentTime,
+		Duration:             body.Duration,
+		LastUpdateClientTime: body.LastUpdateClientTime,
+		Password:             body.Password,
+		Paused:               body.Paused,
+		PlaybackRate:         body.PlaybackRate,
+		Protected:            body.Protected,
+		RoomName:             body.Name,
+		SendLocalTimestamp:   body.SendLocalTimestamp,
+		SessionToken:         body.SessionToken,
+		URL:                  body.URL,
+		UserID:               body.UserID,
+		VideoTitle:           body.VideoTitle,
+	})
+	h.respondResult(w, result, err)
+}
+
+func (h *slashFix) handleMemberUpdate(w http.ResponseWriter, req *http.Request) {
+	var body memberUpdateRequest
+	if !h.decodeJSON(w, req, &body) {
+		return
+	}
+	result, _, err := h.vtSrv.UpdateMember(NewVtContext(req.URL.Query().Get("language"), req.RemoteAddr), MemberUpdateInput{
+		CurrentURL:         body.CurrentURL,
+		IsLoading:          body.IsLoading,
+		RoomName:           body.RoomName,
+		SendLocalTimestamp: body.SendLocalTimestamp,
+		SessionToken:       body.SessionToken,
+		UserID:             body.UserID,
+	})
+	h.respondResult(w, result, err)
+}
+
+func (h *slashFix) decodeJSON(w http.ResponseWriter, req *http.Request, dest interface{}) bool {
+	if req.Body == nil {
+		h.respondError(w, newAppError(errInvalidRequest, "request body is required"))
+		return false
+	}
+	defer req.Body.Close()
+
+	decoder := json.NewDecoder(http.MaxBytesReader(w, req.Body, maxJSONBodyBytes))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dest); err != nil {
+		h.respondError(w, newAppError(errInvalidRequest, "invalid JSON body"))
+		return false
+	}
+	if decoder.Decode(&struct{}{}) != io.EOF {
+		h.respondError(w, newAppError(errInvalidRequest, "request body must contain one JSON value"))
+		return false
+	}
+	return true
+}
+
+func (h *slashFix) respondResult(w http.ResponseWriter, result RoomSessionResult, err error) {
+	if err != nil {
+		h.respondError(w, err)
+		return
+	}
+	h.JSON(w, http.StatusOK, RoomSessionResponse{
+		Room:         result.Room,
+		SessionToken: result.SessionToken,
+		Timestamp:    result.Timestamp,
 	})
 }
 
@@ -155,32 +241,42 @@ func (h *slashFix) JSON(w io.Writer, status int, v interface{}) {
 }
 
 func (h *slashFix) handleError(res http.ResponseWriter, e interface{}) {
-	switch e := e.(type) {
-	case string:
-		http.Error(res, e, http.StatusInternalServerError)
-	case interface{ String() string }:
-		http.Error(res, e.String(), http.StatusInternalServerError)
-	case error:
-		http.Error(res, e.Error(), http.StatusInternalServerError)
-	case []byte:
-		http.Error(res, string(e), http.StatusInternalServerError)
-	default:
-		http.Error(res, fmt.Sprintf("%v", e), http.StatusInternalServerError)
+	h.respondError(res, newAppError("internal_error", fmt.Sprintf("%v", e)))
+}
+
+func (h *slashFix) respondError(w io.Writer, err error) {
+	var appErr *appError
+	if !errors.As(err, &appErr) {
+		appErr = newAppError("internal_error", err.Error())
 	}
-}
-
-type ErrorResponse struct {
-	ErrorMessage string `json:"errorMessage"`
-}
-
-func (h *slashFix) respondError(w io.Writer, errorMessage string) {
-	h.JSON(w, 200, &ErrorResponse{
-		ErrorMessage: errorMessage,
+	h.JSON(w, appErr.Status, ErrorEnvelope{
+		Error: ErrorBody{
+			Code:    appErr.Code,
+			Message: appErr.Message,
+		},
 	})
 }
 
 func (h *slashFix) enableCors(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Max-Age", "86400")
-	w.Header().Set("Access-Control-Allow-Methods", "GET,HEAD,POST,OPTIONS")
+}
+
+func validateHostUpdate(body hostUpdateRequest) error {
+	if body.Name == "" {
+		return newAppError(errInvalidRequest, "name is required")
+	}
+	if body.SessionToken == "" && body.Password == "" {
+		return newAppError(errInvalidRequest, "password or sessionToken is required")
+	}
+	if !isFinite(body.CurrentTime) || !isFinite(body.Duration) || !isFinite(body.LastUpdateClientTime) || !isFinite(body.PlaybackRate) {
+		return newAppError(errInvalidRequest, "numeric fields must be finite")
+	}
+	return nil
+}
+
+func isFinite(num float64) bool {
+	return !math.IsNaN(num) && !math.IsInf(num, 0)
 }

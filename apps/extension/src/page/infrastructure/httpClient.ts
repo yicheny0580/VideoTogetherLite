@@ -1,28 +1,18 @@
 import {
   updateTimeSync,
+  type ApiErrorResponse,
+  type GetRoomPayload,
+  type HostUpdatePayload,
+  type JoinRoomPayload,
   type Language,
-  type Room,
-  type RoomResponse,
+  type MemberUpdatePayload,
+  type RoomSessionResponse,
   type TimeSyncState,
-  type TimestampResponse,
-  type UpdateRoomPayload
+  type TimestampResponse
 } from "@videotogether/shared";
 
 type TimeSyncSetter = (state: TimeSyncState) => void;
 type TimeSyncGetter = () => TimeSyncState;
-
-function roomResponseToRoom(response: RoomResponse | Room): Room {
-  return ("data" in response && response.data ? response.data : response) as Room;
-}
-
-function appendParams(url: URL, params: object): void {
-  for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null) {
-      continue;
-    }
-    url.searchParams.set(key, String(value));
-  }
-}
 
 export class VideoTogetherApiClient {
   constructor(
@@ -34,46 +24,48 @@ export class VideoTogetherApiClient {
   ) {}
 
   async timestamp(): Promise<TimestampResponse> {
-    return this.fetchJson<TimestampResponse>("/timestamp");
+    return this.fetchJson<TimestampResponse>("/api/v1/timestamp", undefined, "GET");
   }
 
-  async updateRoom(payload: UpdateRoomPayload): Promise<Room> {
-    const response = await this.fetchJson<RoomResponse | Room>("/room/update", payload);
-    return roomResponseToRoom(response);
+  async joinRoom(payload: JoinRoomPayload): Promise<RoomSessionResponse> {
+    return this.fetchJson<RoomSessionResponse>("/api/v1/rooms/join", payload);
   }
 
-  async getRoom(name: string, password: string, tempUser: string): Promise<Room> {
-    const response = await this.fetchJson<RoomResponse | Room>("/room/get", {
-      name,
-      password,
-      tempUser
-    });
-    return roomResponseToRoom(response);
+  async getRoom(payload: GetRoomPayload): Promise<RoomSessionResponse> {
+    return this.fetchJson<RoomSessionResponse>("/api/v1/rooms/get", payload);
+  }
+
+  async updateRoom(payload: HostUpdatePayload): Promise<RoomSessionResponse> {
+    return this.fetchJson<RoomSessionResponse>("/api/v1/rooms/host-update", payload);
+  }
+
+  async updateMember(payload: MemberUpdatePayload): Promise<RoomSessionResponse> {
+    return this.fetchJson<RoomSessionResponse>("/api/v1/rooms/member-update", payload);
   }
 
   private async fetchJson<T>(
     path: string,
-    params: object = {},
-    method = "GET"
+    body?: object,
+    method = "POST"
   ): Promise<T> {
     const url = new URL(path, this.host);
-    appendParams(url, params);
     url.searchParams.set("version", this.getVersion());
     url.searchParams.set("language", this.language);
 
     const startTime = Date.now() / 1000;
-    const response = await fetch(url.toString(), { method });
+    const response = await fetch(url.toString(), {
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      method
+    });
     const endTime = Date.now() / 1000;
-    if (response.status !== 200) {
-      throw new Error(`http code: ${response.status}`);
-    }
+    const data = await response.json() as T & Partial<TimestampResponse> & Partial<ApiErrorResponse>;
 
-    const data = await response.json() as T & {
-      errorMessage?: string;
-      timestamp?: number;
-    };
-    if (data.errorMessage !== undefined) {
-      throw new Error(data.errorMessage);
+    if (!response.ok) {
+      throw new Error(data.error?.message ?? `http code: ${response.status}`);
+    }
+    if (data.error !== undefined) {
+      throw new Error(data.error.message);
     }
     if (data.timestamp !== undefined) {
       this.setTimeSync(updateTimeSync(this.getTimeSync(), data.timestamp, startTime, endTime));

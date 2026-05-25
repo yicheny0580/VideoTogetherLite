@@ -1,6 +1,7 @@
 # VideoTogether Lite Go Server
 
 This server keeps only the core room-sync API used by the Chrome lite extension.
+The public contract is the versioned JSON API under `/api/v1`.
 
 ## Development
 
@@ -22,7 +23,12 @@ The production server listens on `:5000` with TLS.
 
 ## API Surface
 
-- `GET /timestamp`
-- `GET /room/update`
-- `GET /room/get`
-- `GET /ws`
+- `GET /api/v1/timestamp`
+- `POST /api/v1/rooms/join`
+- `POST /api/v1/rooms/get`
+- `POST /api/v1/rooms/host-update`
+- `POST /api/v1/rooms/member-update`
+- `GET /api/v1/ws`
+
+Room passwords are sent only in JSON bodies during initial join/host claim.
+Subsequent calls use the returned `sessionToken`.
