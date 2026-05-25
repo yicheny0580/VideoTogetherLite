@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { createServer } from "node:http";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, readFileSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,9 @@ import { spawn } from "node:child_process";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const extensionDist = resolve(root, "apps/extension/dist");
 const extensionManifest = resolve(extensionDist, "manifest.json");
+const fixtureVideoPath = resolve(root, "apps/extension/fixtures/sample-video.webm");
+const fixtureVideoPathname = "/fixture-video.webm";
+const fixtureVideo = readFileSync(fixtureVideoPath);
 const profileDir = resolve(root, ".playwright/videotogetherlite-dev-profile");
 const serviceHost = process.env.VITE_VIDEOTOGETHER_LITE_HOST || "http://127.0.0.1:5001";
 
@@ -162,7 +165,9 @@ function fixtureHtml() {
     <main>
       <h1>VideoTogether Lite local fixture</h1>
       <p>This page exists so the unpacked extension has a local page with a video element.</p>
-      <video controls playsinline></video>
+      <video aria-label="Fixture video" controls playsinline preload="metadata" title="Fixture video">
+        <source src="${fixtureVideoPathname}" type="video/webm">
+      </video>
     </main>
   </body>
 </html>`;
@@ -170,9 +175,19 @@ function fixtureHtml() {
 
 async function startFixtureServer() {
   const server = createServer((request, response) => {
-    if (request.url === "/favicon.ico") {
+    const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
+    if (pathname === "/favicon.ico") {
       response.writeHead(204);
       response.end();
+      return;
+    }
+    if (pathname === fixtureVideoPathname) {
+      response.writeHead(200, {
+        "cache-control": "no-store",
+        "content-length": String(fixtureVideo.length),
+        "content-type": "video/webm"
+      });
+      response.end(fixtureVideo);
       return;
     }
 

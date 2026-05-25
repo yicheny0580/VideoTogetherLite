@@ -1,9 +1,18 @@
+import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface FixtureServer {
   close: () => Promise<void>;
   url: (pathname?: string) => string;
 }
+
+const fixtureVideoPathname = "/fixture-video.webm";
+const fixtureVideo = readFileSync(resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../fixtures/sample-video.webm"
+));
 
 function titleFor(pathname: string): string {
   if (pathname === "/no-video") {
@@ -94,6 +103,12 @@ function videoFixtureScript(): string {
 </script>`;
 }
 
+function videoElementHtml(): string {
+  return `<video aria-label="Fixture video" controls playsinline preload="metadata" title="Fixture video">
+        <source src="${fixtureVideoPathname}" type="video/webm">
+      </video>`;
+}
+
 function fixtureHtml(pathname: string): string {
   const hasVideo = pathname !== "/no-video";
   return `<!doctype html>
@@ -106,7 +121,7 @@ function fixtureHtml(pathname: string): string {
   <body>
     <main>
       <h1>${titleFor(pathname)}</h1>
-      ${hasVideo ? "<video controls playsinline></video>" : "<p>No fixture video.</p>"}
+      ${hasVideo ? videoElementHtml() : "<p>No fixture video.</p>"}
     </main>
     ${hasVideo ? videoFixtureScript() : ""}
   </body>
@@ -119,6 +134,15 @@ export async function startFixtureServer(): Promise<FixtureServer> {
     if (pathname === "/favicon.ico") {
       response.writeHead(204);
       response.end();
+      return;
+    }
+    if (pathname === fixtureVideoPathname) {
+      response.writeHead(200, {
+        "cache-control": "no-store",
+        "content-length": String(fixtureVideo.length),
+        "content-type": "video/webm"
+      });
+      response.end(fixtureVideo);
       return;
     }
 
