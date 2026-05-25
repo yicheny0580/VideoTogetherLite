@@ -1,4 +1,6 @@
-### HTTP API specification
+# HTTP API specification
+
+The Go implementation lives in `apps/server`. TypeScript protocol types for the Chrome extension live in `packages/shared`.
 
 #### GET /timestamp
 

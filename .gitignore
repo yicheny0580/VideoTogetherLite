@@ -1,6 +1,13 @@
 *.pem
 .DS_Store
 node_modules
+dist
+coverage
+.playwright
+.vite
+playwright-report
+test-results
+*.tsbuildinfo
 chrome.zip
 xcuserdata/
 *.zip

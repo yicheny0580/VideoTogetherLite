@@ -8,19 +8,40 @@
 
 ## Installation
 
-Load the unpacked extension from `source/chrome` after running the build script.
+Build the extension and load the unpacked Chrome MV3 output from `apps/extension/dist`.
 
+```bash
+npx pnpm@latest install
+npx pnpm@latest build:extension
+```
 
 ## Development
 
+This repository is a pnpm monorepo.
+
+```bash
+npx pnpm@latest lint
+npx pnpm@latest typecheck
+npx pnpm@latest test
+npx pnpm@latest build
+go test ./apps/server/...
+```
+
 ### Extension
 
-The core code is `source/extension/vt.js`.
+The Chrome extension app lives in `apps/extension` and is built with Vite, TypeScript, React, and Tailwind. The main runtime layers are:
 
-Run `python script/build_extension.py` to build the Chrome extension files in `source/chrome`.
+- content script: injects the page app and loading state
+- page app: owns room sync orchestration and the floating panel
+- popup app: owns extension enable/disable settings
+- shared package: protocol, language, URL state, and time-sync helpers
 
-This lite build keeps only room creation/joining and playback sync. Voice chat, text chat, local download, Easy Share, Safari, Firefox, website proxy, and generated release artifacts were removed.
+For local server testing:
+
+```bash
+VITE_VT_HOST=http://127.0.0.1:5001 npx pnpm@latest --filter @videotogether/extension dev
+```
 
 ### Service
 
-service code is in `source/go-server`
+The Go service code is in `apps/server`.

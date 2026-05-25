@@ -14,7 +14,12 @@ QQ群: 170200260
 
 ## 安装使用
 
-运行 `python script/build_extension.py` 后，在 Chrome 扩展页面加载 `source/chrome`。
+运行以下命令后，在 Chrome 扩展页面加载 `apps/extension/dist`。
+
+```bash
+npx pnpm@latest install
+npx pnpm@latest build:extension
+```
 
 
 ## 开发
@@ -23,19 +28,15 @@ QQ群: 170200260
 
 ### 插件
 
-插件的核心代码在 `main/source/extension/vt.js`
+插件代码在 `apps/extension`，使用 Vite、TypeScript、React 和 Tailwind 构建。
 
-此外还有一个 Chrome 壳插件，代码在 `source/extension/extension.js`
-
-代码中 {{{ }}} 代表的是将某个文件插入到此处
-
-输入命令 `python script/build_extension.py` 能够进行编译，编译结果会写入 `source/chrome`
+共享协议、语言、URL 状态和时间同步工具在 `packages/shared`。
 
 Lite 版本只保留创建/加入房间和播放同步。语音、文字聊天、本地下载、Easy Share、Safari、Firefox、网页代理和生成的 release 文件已移除。
 
 ### 服务端
 
-代码在 `source/go-server` 
+代码在 `apps/server`。
 
 
 ### 赞助
