@@ -1,92 +1,15 @@
 (async function () {
-    let extensionGM = {};
-    let websiteGM = {};
+    const storage = {
+        setValue: async (key, value) => {
+            await chrome.storage.local.set({ [key]: value });
+        },
+        getValue: async (key) => {
+            const result = await chrome.storage.local.get([key]);
+            return result[key];
+        }
+    };
 
-    let type = 'Chrome'
-
-    function getBrowser() {
-        switch (type) {
-            case 'Safari':
-                return browser;
-            case 'Chrome':
-            case 'Firefox':
-                return chrome;
-        }
-    }
-
-    function getGM() {
-        if (type == "website" || type == "website_debug") {
-            return websiteGM;
-        }
-        if (type == "Chrome" || type == "Safari" || type == "Firefox") {
-            return extensionGM;
-        }
-        return GM;
-    }
-    if (type == "Chrome" || type == "Safari" || type == "Firefox") {
-        getGM().setValue = async (key, value) => {
-            return await new Promise((resolve, reject) => {
-                try {
-                    let item = {};
-                    item[key] = value;
-                    getBrowser().storage.local.set(item, function () {
-                        resolve();
-                    });
-                } catch (e) {
-                    reject(e);
-                }
-            })
-        }
-        getGM().getValue = async (key) => {
-            return await new Promise((resolve, reject) => {
-                try {
-                    getBrowser().storage.local.get([key], function (result) {
-                        resolve(result[key]);
-                    });
-                } catch (e) {
-                    reject(e);
-                }
-
-            })
-        }
-        getGM().getTab = async () => {
-            return await new Promise((resolve, reject) => {
-                try {
-                    getBrowser().runtime.sendMessage(JSON.stringify({ type: 1 }), function (response) {
-                        resolve(response);
-                    })
-                } catch (e) {
-                    reject(e);
-                }
-
-            })
-        }
-        getGM().saveTab = async (tab) => {
-            return await new Promise((resolve, reject) => {
-                try {
-                    getBrowser().runtime.sendMessage(JSON.stringify({ type: 2, tab: tab }), function (response) {
-                        resolve(response);
-                    })
-                } catch (e) {
-                    reject(e);
-                }
-            })
-        }
-        getGM().xmlHttpRequest = async (props) => {
-            try {
-                getBrowser().runtime.sendMessage(JSON.stringify({ type: 3, props: props }), function (response) {
-                    if (response.error != undefined) {
-                        throw response.error;
-                    }
-                    props.onload(response);
-                })
-            } catch (e) {
-                props.onerror(e);
-            }
-        }
-    }
-
-    strings = {
+    const strings = {
         'zh-cn': {
             'enabled': "启用",
             'disabled': "停用",
@@ -104,7 +27,7 @@
     let prefixLen = 0;
     let settingLanguage = undefined;
     try {
-        settingLanguage = await getGM().getValue("DisplayLanguage");
+        settingLanguage = await storage.getValue("DisplayLanguage");
     } catch (e) { };
 
     if (typeof settingLanguage != 'string') {
@@ -132,10 +55,10 @@
         document.querySelector("#refreshAfterChange").textContent = strings[language]['refreshAfterChange'];
     }
     document.querySelector("#extensionSwitch").oninput = async (e) => {
-        await getGM().setValue('vtEnabled', e.target.checked);
+        await storage.setValue('vtEnabled', e.target.checked);
         updateText();
     }
 
-    document.querySelector("#extensionSwitch").checked = !(await getGM().getValue('vtEnabled') === false);
+    document.querySelector("#extensionSwitch").checked = !(await storage.getValue('vtEnabled') === false);
     updateText();
 })();

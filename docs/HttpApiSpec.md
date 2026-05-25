@@ -1,79 +1,72 @@
-### HTTP APIs specification:
-
+### HTTP API specification
 
 #### GET /timestamp
-Get the current time of the server
-##### Response
-```json5
-{
-  "timestamp": 1.123, // float64; current timestamp (seconds) of the server
-}
-```
 
-#### GET /statistics
-Get current server's statistic data
-##### Response
-```json5
+Returns server time and the current runtime version token.
+
+```json
 {
-  "roomCount": 1,
+  "timestamp": 1.123,
+  "vtVersion": 123
 }
 ```
 
 #### GET /room/get
 
-Get room info
+Gets room playback state.
 
-##### Request
+| Parameter | Description |
+| --- | --- |
+| `name` | Room name |
+| `password` | Room password |
 
-| Parameters |               | 
-|------------|---------------|
-| name       | room name     |
-| password   | room password |
+#### GET /room/update
 
-##### Response
+Creates or updates a room as the host.
 
-```json5
+| Parameter | Description |
+| --- | --- |
+| `name` | Room name |
+| `password` | Room password |
+| `playbackRate` | Playback rate |
+| `currentTime` | Current video time |
+| `paused` | `true` or `false` |
+| `url` | Host page URL |
+| `lastUpdateClientTime` | Host client timestamp |
+| `duration` | Video duration |
+| `tempUser` | Host temporary user ID |
+| `protected` | `true` or `false` |
+| `videoTitle` | Page/video title |
+
+Room responses include:
+
+```json
 {
-  "name":                 "",    // room name
-  "lastUpdateClientTime": 1.123, // float64
-  "lastUpdateServerTime": 1.123, // float64
-  "playbackRate":         1.0,   // float64; speed
-  "currentTime":          1.123, // float64
-  "paused":               false, // bool
-  "url":                  "",    // 
-  "duration":             1.0,   // 
-  "public":               false, // bool
-  "protected":            false,
-  "videoTitle":           "",
-  "timestamp":            1.123, // float64; current timestamp (seconds) of the server
+  "name": "room",
+  "lastUpdateClientTime": 1.123,
+  "lastUpdateServerTime": 1.123,
+  "playbackRate": 1,
+  "currentTime": 1.123,
+  "paused": false,
+  "url": "https://example.test/watch",
+  "duration": 600,
+  "protected": true,
+  "videoTitle": "Example",
+  "uuid": "...",
+  "waitForLoadding": false,
+  "beginLoaddingTimestamp": 0,
+  "memberCount": 1,
+  "timestamp": 1.123
 }
 ```
 
-#### PUT /room/update
+#### GET /ws
 
-Submit realtime infomation, which helps peers in the room with synchronization.
+WebSocket endpoint for room updates.
 
-##### Request
+Supported methods:
 
-| Parameters           |                   | 
-|----------------------|-------------------|
-| name                 | room name         |
-| password             | room password     |
-| playbackRate         |                   |
-| currentTime          | peer current time |
-| paused               |                   |
-| url                  | video link        |
-| lastUpdateClientTime |                   |
-| duration             |                   |
-| tempUser             |                   |
-| protected            |                   |
-| videoTitle           |                   |
-
-##### Response
-
-AS SAME AS the Response of 'GET /room/get'
-
-#### ANY /kraken
-**all methods except 'OPTIONS'.**
-
-Act as a reverse proxy
+- `/room/join`
+- `/room/update`
+- `/room/update_member`
+- `replay_timestamp`

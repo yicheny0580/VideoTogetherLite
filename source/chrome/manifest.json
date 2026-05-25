@@ -12,36 +12,13 @@
                 "extension.chrome.user.js"
             ],
             "all_frames": true
-        },
-        {
-            "matches": [
-                "<all_urls>"
-            ],
-            "js": [
-                "pre.js"
-            ],
-            "run_at": "document_start",
-            "all_frames": true
-        },
-        {
-            "matches": [
-                "<all_urls>"
-            ],
-            "js": [
-                "preInjected.js"
-            ],
-            "run_at": "document_start",
-            "all_frames": true,
-            "world": "MAIN"
         }
     ],
     "web_accessible_resources": [
         {
             "resources": [
                 "vt.en-us.user.js",
-                "vt.zh-cn.user.js",
-                "vt.ja-jp.user.js",
-                "preInjected.js"
+                "vt.zh-cn.user.js"
             ],
             "matches": [
                 "<all_urls>"
@@ -56,8 +33,7 @@
         "192": "./icon/android-icon-192x192.png"
     },
     "permissions": [
-        "storage",
-        "unlimitedStorage"
+        "storage"
     ],
     "action": {
         "default_popup": "popup.html"

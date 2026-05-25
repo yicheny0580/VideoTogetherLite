@@ -1,6 +1,6 @@
 # VideoTogether
 
-## VideoTogether is a browser extension that syncs video playback with friends in real-time on Chrome, Edge, and Safari.
+## VideoTogether Lite is a Chrome extension that syncs video playback with friends in real time.
 
 ## Visit http://2gether.video/ for more information
 
@@ -8,20 +8,19 @@
 
 ## Installation
 
-Please visit our website https://2gether.video/ for installation guide
+Load the unpacked extension from `source/chrome` after running the build script.
 
 
 ## Development
 
 ### Extension
 
-The core code is `main/source/extension/vt.js`
+The core code is `source/extension/vt.js`.
 
-We use a very simple compile script `script/build_extension.py` to build
+Run `python script/build_extension.py` to build the Chrome extension files in `source/chrome`.
 
-run `python script/build_extension.py` to build, the output directory is `./release` 
+This lite build keeps only room creation/joining and playback sync. Voice chat, text chat, local download, Easy Share, Safari, Firefox, website proxy, and generated release artifacts were removed.
 
 ### Service
 
 service code is in `source/go-server`
-

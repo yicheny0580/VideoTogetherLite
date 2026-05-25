@@ -1,2 +1,0 @@
-${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/Objective_LevelDB.framework
-${TARGET_BUILD_DIR}/${FRAMEWORKS_FOLDER_PATH}/leveldb.framework
