@@ -1,4 +1,4 @@
-import { calculateRealCurrent, type Room } from "@videotogether/shared";
+import { calculateRealCurrent, type Room } from "@videotogetherlite/shared";
 
 export async function syncVideoToRoom(
   room: Room,

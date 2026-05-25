@@ -10,8 +10,8 @@ import { spawn } from "node:child_process";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const extensionDist = resolve(root, "apps/extension/dist");
 const extensionManifest = resolve(extensionDist, "manifest.json");
-const profileDir = resolve(root, ".playwright/videotogether-dev-profile");
-const serviceHost = process.env.VITE_VT_HOST || "http://127.0.0.1:5001";
+const profileDir = resolve(root, ".playwright/videotogetherlite-dev-profile");
+const serviceHost = process.env.VITE_VIDEOTOGETHER_LITE_HOST || "http://127.0.0.1:5001";
 
 const runningChildren = new Set();
 let shuttingDown = false;
@@ -138,7 +138,7 @@ function fixtureHtml() {
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>VideoTogether local fixture</title>
+    <title>VideoTogether Lite local fixture</title>
     <style>
       body {
         background: #f7f8fa;
@@ -160,7 +160,7 @@ function fixtureHtml() {
   </head>
   <body>
     <main>
-      <h1>VideoTogether local fixture</h1>
+      <h1>VideoTogether Lite local fixture</h1>
       <p>This page exists so the unpacked extension has a local page with a video element.</p>
       <video controls playsinline></video>
     </main>
@@ -260,8 +260,8 @@ async function runWatch({ openBrowser }) {
   const watcher = startChild(
     "extension",
     "pnpm",
-    ["--filter", "@videotogether/extension", "dev"],
-    { env: { VITE_VT_HOST: serviceHost } }
+    ["--filter", "@videotogetherlite/extension", "dev"],
+    { env: { VITE_VIDEOTOGETHER_LITE_HOST: serviceHost } }
   );
 
   let context;

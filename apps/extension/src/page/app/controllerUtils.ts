@@ -10,12 +10,12 @@ export function generateTempUserId(): string {
 }
 
 export function isRoomProtected(): boolean {
-  return window.VideoTogetherStorage === undefined
-    || window.VideoTogetherStorage.PasswordProtectedRoom !== false;
+  return window.VideoTogetherLiteStorage === undefined
+    || window.VideoTogetherLiteStorage.PasswordProtectedRoom !== false;
 }
 
 export function isWaitForLoadingEnabled(): boolean {
-  return window.VideoTogetherStorage?.WaitForLoading
-    ?? window.VideoTogetherStorage?.WaitForLoadding
+  return window.VideoTogetherLiteStorage?.WaitForLoading
+    ?? window.VideoTogetherLiteStorage?.WaitForLoadding
     ?? true;
 }

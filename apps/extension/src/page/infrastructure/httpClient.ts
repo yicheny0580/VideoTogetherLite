@@ -9,12 +9,12 @@ import {
   type RoomSessionResponse,
   type TimeSyncState,
   type TimestampResponse
-} from "@videotogether/shared";
+} from "@videotogetherlite/shared";
 
 type TimeSyncSetter = (state: TimeSyncState) => void;
 type TimeSyncGetter = () => TimeSyncState;
 
-export class VideoTogetherApiClient {
+export class VideoTogetherLiteApiClient {
   constructor(
     private readonly host: string,
     private readonly language: Language,

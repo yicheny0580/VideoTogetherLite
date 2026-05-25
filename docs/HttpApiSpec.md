@@ -20,7 +20,7 @@ Returns server time and the current runtime version token.
 ```json
 {
   "timestamp": 1.123,
-  "vtVersion": 123
+  "videoTogetherLiteVersion": 123
 }
 ```
 

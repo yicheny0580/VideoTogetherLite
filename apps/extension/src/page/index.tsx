@@ -1,12 +1,12 @@
-import { resolveLanguage } from "@videotogether/shared";
+import { resolveLanguage } from "@videotogetherlite/shared";
 
-import { VideoTogetherController } from "./app/VideoTogetherController";
+import { VideoTogetherLiteController } from "./app/VideoTogetherLiteController";
 import { mountFloatingPanel } from "./ui/mountFloatingPanel";
 
 function postMessageToSelf(type: number, data: unknown): void {
   window.postMessage({
     data,
-    source: "VideoTogether",
+    source: "VideoTogetherLite",
     type
   }, "*");
 }
@@ -19,14 +19,14 @@ function getLanguageFromScriptUrl(): string | null {
   }
 }
 
-if (!window.VideoTogetherLoading) {
-  window.VideoTogetherLoading = true;
+if (!window.VideoTogetherLiteLoading) {
+  window.VideoTogetherLiteLoading = true;
 
   try {
-    if (window.videoTogetherExtension === undefined) {
+    if (window.videoTogetherLiteExtension === undefined) {
       const language = resolveLanguage(getLanguageFromScriptUrl() ?? navigator.language);
-      const controller = new VideoTogetherController(language);
-      window.videoTogetherExtension = controller;
+      const controller = new VideoTogetherLiteController(language);
+      window.videoTogetherLiteExtension = controller;
       mountFloatingPanel(controller, language);
       controller.start();
       postMessageToSelf(17, {});

@@ -27,7 +27,7 @@ chrome.runtime.onMessage.addListener((rawMessage, sender, sendResponse) => {
   }
 
   chrome.action.setIcon({
-    path: message.enabled ? "/icon/vt_64x64.png" : "/icon/vt_gray_64x64.png",
+    path: message.enabled ? "/icon/videotogether-lite_64x64.png" : "/icon/videotogether-lite-gray_64x64.png",
     tabId: sender.tab.id
   });
   sendResponse();

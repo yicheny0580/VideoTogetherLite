@@ -1,5 +1,5 @@
 {
-  "name": "videotogether",
+  "name": "videotogetherlite",
   "private": true,
   "packageManager": "pnpm@11.3.0",
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "scripts": {
     "build": "pnpm -r --if-present build",
-    "build:extension": "pnpm --filter @videotogether/extension build",
+    "build:extension": "pnpm --filter @videotogetherlite/extension build",
     "check:lines": "node scripts/check-file-lines.mjs",
     "lint": "eslint . && pnpm check:lines",
     "test": "pnpm -r --if-present test",

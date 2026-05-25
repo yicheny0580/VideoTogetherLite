@@ -26,7 +26,7 @@ server:
     go run ./apps/server debug
 
 extension:
-    VITE_VT_HOST={{service_host}} {{pnpm}} --filter @videotogether/extension dev
+    VITE_VIDEOTOGETHER_LITE_HOST={{service_host}} {{pnpm}} --filter @videotogetherlite/extension dev
 
 check: lint typecheck test build test-server
 

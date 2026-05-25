@@ -9,7 +9,7 @@ import type {
   TimestampReplay,
   WsRequest,
   WsResponse
-} from "@videotogether/shared";
+} from "@videotogetherlite/shared";
 
 function toWsUrl(httpUrl: string, language: Language): string {
   const url = new URL(httpUrl);
@@ -23,7 +23,7 @@ function roomResponseToRoom(response: RoomSessionResponse | undefined): Room | n
   return response?.room ?? null;
 }
 
-export class VideoTogetherWsClient {
+export class VideoTogetherLiteWsClient {
   private connectedToService = false;
   private joinedName: string | null = null;
   private lastConnectTime = 0;

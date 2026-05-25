@@ -6,7 +6,7 @@ import { PopupApp } from "./PopupApp";
 
 vi.mock("./storage", () => ({
   getValue: vi.fn(async (key: string) => {
-    if (key === "vtEnabled") {
+    if (key === "videoTogetherLiteEnabled") {
       return false;
     }
     if (key === "DisplayLanguage") {

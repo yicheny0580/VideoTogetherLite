@@ -1,4 +1,4 @@
-import { Role } from "@videotogether/shared";
+import { Role } from "@videotogetherlite/shared";
 
 export type StatusTone = "default" | "danger" | "success";
 

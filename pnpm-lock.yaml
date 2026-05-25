@@ -65,7 +65,7 @@ importers:
 
   apps/extension:
     dependencies:
-      '@videotogether/shared':
+      '@videotogetherlite/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       react:

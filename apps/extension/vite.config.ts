@@ -10,7 +10,7 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@videotogether/shared": resolve(root, "../../packages/shared/src/index.ts")
+      "@videotogetherlite/shared": resolve(root, "../../packages/shared/src/index.ts")
     }
   },
   build: {

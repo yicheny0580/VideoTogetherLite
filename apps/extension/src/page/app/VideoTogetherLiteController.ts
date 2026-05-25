@@ -1,9 +1,9 @@
-import { Role, createTimeSyncState, getLocalTimestamp, linkWithMemberState, linkWithoutState, updateTimeSync, type HostUpdatePayload, type Language, type MemberUpdatePayload, type Room, type RoomSessionResponse } from "@videotogether/shared";
+import { Role, createTimeSyncState, getLocalTimestamp, linkWithMemberState, linkWithoutState, updateTimeSync, type HostUpdatePayload, type Language, type MemberUpdatePayload, type Room, type RoomSessionResponse } from "@videotogetherlite/shared";
 
 import { translate, type LocaleKey } from "../../i18n/messages";
-import { VideoTogetherApiClient } from "../infrastructure/httpClient";
+import { VideoTogetherLiteApiClient } from "../infrastructure/httpClient";
 import { PageStateStore } from "../infrastructure/pageStateStore";
-import { VideoTogetherWsClient } from "../infrastructure/wsClient";
+import { VideoTogetherLiteWsClient } from "../infrastructure/wsClient";
 import { isVideoLoaded, VideoRegistry } from "../infrastructure/videoRegistry";
 import { getServiceHost, stateMaxAgeSeconds } from "./config";
 import { generateTempUserId, getDisplayTimeText, isRoomProtected, isWaitForLoadingEnabled } from "./controllerUtils";
@@ -14,8 +14,8 @@ export type { PanelState, StatusTone } from "./panelState";
 
 type Listener = () => void;
 
-export class VideoTogetherController {
-  private readonly apiClient: VideoTogetherApiClient;
+export class VideoTogetherLiteController {
+  private readonly apiClient: VideoTogetherLiteApiClient;
   private httpSucc = false;
   private lastScheduledTaskTs = 0;
   private readonly listeners = new Set<Listener>();
@@ -28,7 +28,7 @@ export class VideoTogetherController {
   private waitForLoading = false;
   private playAfterLoading = false;
   private readonly videoRegistry: VideoRegistry;
-  private readonly wsClient: VideoTogetherWsClient;
+  private readonly wsClient: VideoTogetherLiteWsClient;
 
   private panelState: PanelState = initialPanelState("");
 
@@ -36,7 +36,7 @@ export class VideoTogetherController {
     private readonly language: Language,
     private readonly serviceHost = getServiceHost()
   ) {
-    this.apiClient = new VideoTogetherApiClient(
+    this.apiClient = new VideoTogetherLiteApiClient(
       serviceHost,
       language,
       () => this.version,
@@ -45,7 +45,7 @@ export class VideoTogetherController {
         this.timeSync = state;
       }
     );
-    this.wsClient = new VideoTogetherWsClient(
+    this.wsClient = new VideoTogetherLiteWsClient(
       language,
       (room) => {
         this.applyRoomInfo(room);

@@ -1,15 +1,15 @@
-import { resolveLanguage, type Language } from "@videotogether/shared";
+import { resolveLanguage, type Language } from "@videotogetherlite/shared";
 import { createRoot } from "react-dom/client";
 import { useSyncExternalStore } from "react";
 import type { ReactElement } from "react";
 
 import { getMessages } from "../../i18n/messages";
-import type { VideoTogetherController } from "../app/VideoTogetherController";
+import type { VideoTogetherLiteController } from "../app/VideoTogetherLiteController";
 import { FloatingPanel } from "./FloatingPanel";
 import styles from "../../styles/injected.css?inline";
 
 interface PanelRootProps {
-  controller: VideoTogetherController;
+  controller: VideoTogetherLiteController;
   iconUrl: string;
   language: Language;
 }
@@ -34,14 +34,14 @@ function PanelRoot({ controller, iconUrl, language }: PanelRootProps): ReactElem
   );
 }
 
-export function mountFloatingPanel(controller: VideoTogetherController, language: unknown): void {
-  if (window.self !== window.top || document.getElementById("VideoTogetherWrapper")) {
+export function mountFloatingPanel(controller: VideoTogetherLiteController, language: unknown): void {
+  if (window.self !== window.top || document.getElementById("VideoTogetherLiteWrapper")) {
     return;
   }
 
   const normalizedLanguage = resolveLanguage(language);
   const shadowWrapper = document.createElement("div");
-  shadowWrapper.id = "VideoTogetherWrapper";
+  shadowWrapper.id = "VideoTogetherLiteWrapper";
   shadowWrapper.ontouchstart = (event) => event.stopPropagation();
 
   const shadowRoot = shadowWrapper.attachShadow({ mode: "open" });
@@ -55,9 +55,9 @@ export function mountFloatingPanel(controller: VideoTogetherController, language
   shadowRoot.appendChild(mountPoint);
   (document.body || document.documentElement).appendChild(shadowWrapper);
 
-  const iconUrl = new URL(/* @vite-ignore */ "icon/vt_64x64.png", import.meta.url).toString();
+  const iconUrl = new URL(/* @vite-ignore */ "icon/videotogether-lite_64x64.png", import.meta.url).toString();
   createRoot(mountPoint).render(
     <PanelRoot controller={controller} iconUrl={iconUrl} language={normalizedLanguage} />
   );
-  document.querySelector("#videoTogetherLoading")?.remove();
+  document.querySelector("#videoTogetherLiteLoading")?.remove();
 }

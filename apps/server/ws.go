@@ -19,26 +19,26 @@ func (h *slashFix) newWsHandler(hub *Hub) http.HandlerFunc {
 		}
 		language := r.URL.Query().Get("language")
 		client := &Client{
-			hub:       hub,
-			conn:      conn,
-			send:      make(chan []byte, 256),
-			vtContext: NewVtContext(language),
+			hub:         hub,
+			conn:        conn,
+			send:        make(chan []byte, 256),
+			liteContext: NewVideoTogetherLiteContext(language),
 		}
 		go client.writePump()
 		go client.readPump()
 	}
 }
 
-func newWsHub(vtSrv *VideoTogetherService) *Hub {
+func newWsHub(liteService *VideoTogetherLiteService) *Hub {
 	return &Hub{
-		vtSrv:       vtSrv,
+		liteService: liteService,
 		roomClients: map[string]map[*Client]bool{},
 	}
 }
 
 type Hub struct {
 	mu          sync.RWMutex
-	vtSrv       *VideoTogetherService
+	liteService *VideoTogetherLiteService
 	roomClients map[string]map[*Client]bool
 }
 
@@ -47,7 +47,7 @@ func (h *Hub) run() {
 	defer cleanupTicker.Stop()
 
 	for range cleanupTicker.C {
-		h.vtSrv.RemoveExpiredRooms()
+		h.liteService.RemoveExpiredRooms()
 		h.cleanupExpiredRooms()
 	}
 }
@@ -110,7 +110,7 @@ func (h *Hub) cleanupExpiredRooms() {
 	defer h.mu.Unlock()
 
 	for roomName := range h.roomClients {
-		if !h.vtSrv.RoomExists(roomName) {
+		if !h.liteService.RoomExists(roomName) {
 			delete(h.roomClients, roomName)
 		}
 	}
@@ -132,11 +132,11 @@ var upgrader = websocket.Upgrader{
 }
 
 type Client struct {
-	hub       *Hub
-	conn      *websocket.Conn
-	send      chan []byte
-	roomName  string
-	vtContext *VtContext
+	hub         *Hub
+	conn        *websocket.Conn
+	send        chan []byte
+	roomName    string
+	liteContext *VideoTogetherLiteContext
 }
 
 type WsRequestMessage struct {
@@ -205,7 +205,7 @@ func (c *Client) joinRoom(rawReq *WsRequestMessage) {
 		return
 	}
 
-	result, err := c.hub.vtSrv.JoinRoom(c.vtContext, JoinRoomInput{
+	result, err := c.hub.liteService.JoinRoom(c.liteContext, JoinRoomInput{
 		Password: req.Password,
 		RoomName: req.Name,
 		UserID:   req.UserID,
@@ -225,7 +225,7 @@ func (c *Client) getRoom(rawReq *WsRequestMessage) {
 		return
 	}
 
-	result, err := c.hub.vtSrv.GetRoom(c.vtContext, GetRoomInput{
+	result, err := c.hub.liteService.GetRoom(c.liteContext, GetRoomInput{
 		RoomName:     req.Name,
 		SessionToken: req.SessionToken,
 	})
@@ -245,7 +245,7 @@ func (c *Client) updateMember(rawReq *WsRequestMessage) {
 		return
 	}
 
-	result, needNotification, err := c.hub.vtSrv.UpdateMember(c.vtContext, MemberUpdateInput{
+	result, needNotification, err := c.hub.liteService.UpdateMember(c.liteContext, MemberUpdateInput{
 		CurrentURL:   req.CurrentURL,
 		IsLoading:    req.IsLoading,
 		RoomName:     req.RoomName,
@@ -276,7 +276,7 @@ func (c *Client) updateRoom(rawReq *WsRequestMessage) {
 		return
 	}
 
-	result, err := c.hub.vtSrv.HostUpdateRoom(c.vtContext, HostUpdateInput{
+	result, err := c.hub.liteService.HostUpdateRoom(c.liteContext, HostUpdateInput{
 		CurrentTime:          req.CurrentTime,
 		Duration:             req.Duration,
 		LastUpdateClientTime: req.LastUpdateClientTime,

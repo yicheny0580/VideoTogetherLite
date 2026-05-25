@@ -6,30 +6,30 @@
   font-size: 14px;
 }
 
-.vt-panel {
+.vtl-panel {
   @apply fixed bottom-[15px] right-[15px] z-[2147483647] h-[210px] w-[260px] rounded-lg border border-neutral-200 bg-white text-center leading-tight text-neutral-950 shadow-xl;
 }
 
-.vt-header {
+.vtl-header {
   @apply flex cursor-move touch-none items-center justify-between rounded-t-lg border-b border-neutral-100 bg-white p-3;
 }
 
-.vt-icon-btn {
+.vtl-icon-btn {
   @apply flex h-5 w-5 items-center justify-center border-0 bg-transparent p-0 text-neutral-500 hover:text-sky-500;
 }
 
-.vt-input {
+.vtl-input {
   @apply h-[22px] w-full border border-neutral-200 bg-white px-1 text-sm text-neutral-950 disabled:border-0 disabled:bg-transparent;
 }
 
-.vt-footer {
+.vtl-footer {
   @apply absolute bottom-0 left-0 right-0 flex items-center justify-between border-t border-neutral-100 bg-transparent px-3 py-2.5;
 }
 
-.vt-btn {
+.vtl-btn {
   @apply h-8 whitespace-nowrap rounded border border-neutral-300 px-3 py-1 text-sm font-normal leading-snug hover:border-neutral-200 hover:bg-neutral-200;
 }
 
-.vt-small-icon {
+.vtl-small-icon {
   @apply fixed bottom-[15px] right-[15px] z-[2147483647] h-6 w-6 cursor-pointer border-0 bg-transparent p-0;
 }

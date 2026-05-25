@@ -1,4 +1,4 @@
-import { resolveLanguage, type Language } from "@videotogether/shared";
+import { resolveLanguage, type Language } from "@videotogetherlite/shared";
 import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 
@@ -13,7 +13,7 @@ export function PopupApp(): ReactElement {
     let mounted = true;
     async function loadSettings(): Promise<void> {
       const [storedEnabled, storedLanguage] = await Promise.all([
-        getValue<boolean>("vtEnabled"),
+        getValue<boolean>("videoTogetherLiteEnabled"),
         getValue<string>("DisplayLanguage")
       ]);
       if (!mounted) {
@@ -32,7 +32,7 @@ export function PopupApp(): ReactElement {
   const strings = popupMessages[language] ?? popupMessages["en-us"]!;
   const updateEnabled = async (nextEnabled: boolean) => {
     setEnabled(nextEnabled);
-    await setValue("vtEnabled", nextEnabled);
+    await setValue("videoTogetherLiteEnabled", nextEnabled);
   };
 
   return (
@@ -48,7 +48,7 @@ export function PopupApp(): ReactElement {
           <input
             checked={enabled}
             className="peer sr-only"
-            id="extensionSwitch"
+            id="videoTogetherLiteExtensionSwitch"
             onChange={(event) => void updateEnabled(event.target.checked)}
             type="checkbox"
           />

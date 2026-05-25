@@ -55,8 +55,8 @@ func (cm *certManager) start() {
 
 func main() {
 	Init()
-	vtSrv := NewVideoTogetherService(time.Minute * 3)
-	server := newSlashFix(vtSrv)
+	liteService := NewVideoTogetherLiteService(time.Minute * 3)
+	server := newSlashFix(liteService)
 	if len(os.Args) <= 1 {
 		panic(newHTTPServer(":5001", server, nil).ListenAndServe())
 	}

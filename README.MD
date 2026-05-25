@@ -1,10 +1,10 @@
-# VideoTogether
+# VideoTogether Lite
 
 ## VideoTogether Lite is a Chrome extension that syncs video playback with friends in real time.
 
-## Visit http://2gether.video/ for more information
+## Visit https://github.com/yicheny0580/VideoTogetherLite for more information
 
-[ English ] [ [中文](https://github.com/VideoTogether/VideoTogether/blob/main/README_zh.MD) ]
+[ English ] [ [中文](https://github.com/yicheny0580/VideoTogetherLite/blob/main/README_zh.MD) ]
 
 ## Installation
 

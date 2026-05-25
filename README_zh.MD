@@ -1,14 +1,14 @@
-# <a name="0">VideoTogether 一起看视频</a>
+# <a name="0">VideoTogether Lite 一起看视频</a>
 
 
 ## VideoTogether Lite 是一个用于同步视频播放的 Chrome 插件。
 
 文档正在完善中
-请加入插件的交流群获取更详细的帮助信息，以及反馈问题
+请查看 fork 仓库获取更详细的帮助信息，以及反馈问题
 
-Telegram: https://t.me/videotogether_group
+项目主页: https://github.com/yicheny0580/VideoTogetherLite
 
-QQ群: 170200260
+问题反馈: https://github.com/yicheny0580/VideoTogetherLite/issues
 
 也欢迎提交任何 issue 以及 PR
 

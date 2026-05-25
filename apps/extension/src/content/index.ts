@@ -27,22 +27,22 @@ function sendEnabledStatus(enabled: boolean): void {
 }
 
 function mountLoadingIndicator(): void {
-  if (document.getElementById("videoTogetherLoading")) {
+  if (document.getElementById("videoTogetherLiteLoading")) {
     return;
   }
 
   const loading = document.createElement("div");
-  loading.id = "videoTogetherLoading";
+  loading.id = "videoTogetherLiteLoading";
   loading.innerHTML = `
-    <div id="videoTogetherLoadingwrap">
-      <img src="${chrome.runtime.getURL("icon/vt_64x64.png")}" alt="">
-      <a target="_blank" href="http://videotogether.github.io/guide/qa.html">loading ...</a>
+    <div id="videoTogetherLiteLoadingWrap">
+      <img src="${chrome.runtime.getURL("icon/videotogether-lite_64x64.png")}" alt="">
+      <a target="_blank" href="https://github.com/yicheny0580/VideoTogetherLite#readme">loading ...</a>
     </div>
   `;
 
   const style = document.createElement("style");
   style.textContent = `
-    #videoTogetherLoading {
+    #videoTogetherLiteLoading {
       align-items: center;
       background: #ffffff;
       border: 1px solid #c9c8c8;
@@ -59,22 +59,22 @@ function mountLoadingIndicator(): void {
       width: 250px;
       z-index: 2147483646;
     }
-    #videoTogetherLoadingwrap {
+    #videoTogetherLiteLoadingWrap {
       align-items: center;
       display: flex;
       justify-content: center;
       width: 100%;
     }
-    #videoTogetherLoadingwrap img {
+    #videoTogetherLiteLoadingWrap img {
       height: 16px;
       margin-right: 12px;
       width: 16px;
     }
-    #videoTogetherLoadingwrap a {
+    #videoTogetherLiteLoadingWrap a {
       color: #212529;
       text-decoration: none;
     }
-    #videoTogetherLoadingwrap a:hover {
+    #videoTogetherLiteLoadingWrap a:hover {
       color: #1890ff;
       text-decoration: underline;
     }
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const enabled = await getValue<boolean>("vtEnabled");
+  const enabled = await getValue<boolean>("videoTogetherLiteEnabled");
   if (enabled === false) {
     sendEnabledStatus(false);
     return;

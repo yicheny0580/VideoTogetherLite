@@ -12,11 +12,11 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-func newTestServer() (*httptest.Server, *VideoTogetherService) {
+func newTestServer() (*httptest.Server, *VideoTogetherLiteService) {
 	Init()
-	vtSrv := NewVideoTogetherService(time.Minute)
-	api := newSlashFix(vtSrv)
-	return httptest.NewServer(api), vtSrv
+	liteService := NewVideoTogetherLiteService(time.Minute)
+	api := newSlashFix(liteService)
+	return httptest.NewServer(api), liteService
 }
 
 func TestHostUpdateAndGetWithToken(t *testing.T) {

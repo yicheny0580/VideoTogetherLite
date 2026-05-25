@@ -19,7 +19,7 @@
     "noImplicitReturns": true,
     "noUncheckedIndexedAccess": true,
     "paths": {
-      "@videotogether/shared": ["packages/shared/src/index.ts"]
+      "@videotogetherlite/shared": ["packages/shared/src/index.ts"]
     },
     "resolveJsonModule": true,
     "skipLibCheck": true,

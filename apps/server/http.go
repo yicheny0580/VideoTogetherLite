@@ -13,20 +13,20 @@ import (
 
 const maxJSONBodyBytes = 1 << 20
 
-var vtVersion = secureVersion()
+var videoTogetherLiteVersion = secureVersion()
 
 func Init() {
-	vtVersion = secureVersion()
+	videoTogetherLiteVersion = secureVersion()
 }
 
 type slashFix struct {
-	mux   http.Handler
-	vtSrv *VideoTogetherService
+	mux         http.Handler
+	liteService *VideoTogetherLiteService
 }
 
-func newSlashFix(vtSrv *VideoTogetherService) *slashFix {
+func newSlashFix(liteService *VideoTogetherLiteService) *slashFix {
 	s := &slashFix{
-		vtSrv: vtSrv,
+		liteService: liteService,
 	}
 
 	mux := http.NewServeMux()
@@ -36,7 +36,7 @@ func newSlashFix(vtSrv *VideoTogetherService) *slashFix {
 	mux.HandleFunc("POST /api/v1/rooms/host-update", s.handleHostUpdate)
 	mux.HandleFunc("POST /api/v1/rooms/member-update", s.handleMemberUpdate)
 
-	wsHub := newWsHub(vtSrv)
+	wsHub := newWsHub(liteService)
 	go wsHub.run()
 	mux.HandleFunc("GET /api/v1/ws", s.newWsHandler(wsHub))
 
@@ -62,8 +62,8 @@ func (h *slashFix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type TimestampResponse struct {
-	Timestamp float64 `json:"timestamp"`
-	VtVersion int     `json:"vtVersion"`
+	Timestamp                float64 `json:"timestamp"`
+	VideoTogetherLiteVersion int     `json:"videoTogetherLiteVersion"`
 }
 
 type RoomSessionResponse struct {
@@ -125,8 +125,8 @@ type memberUpdateRequest struct {
 
 func (h *slashFix) handleTimestamp(w http.ResponseWriter, _ *http.Request) {
 	h.JSON(w, http.StatusOK, TimestampResponse{
-		Timestamp: h.vtSrv.Timestamp(),
-		VtVersion: vtVersion,
+		Timestamp:                h.liteService.Timestamp(),
+		VideoTogetherLiteVersion: videoTogetherLiteVersion,
 	})
 }
 
@@ -135,7 +135,7 @@ func (h *slashFix) handleRoomJoin(w http.ResponseWriter, req *http.Request) {
 	if !h.decodeJSON(w, req, &body) {
 		return
 	}
-	result, err := h.vtSrv.JoinRoom(NewVtContext(req.URL.Query().Get("language")), JoinRoomInput{
+	result, err := h.liteService.JoinRoom(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), JoinRoomInput{
 		Password: body.Password,
 		RoomName: body.Name,
 		UserID:   body.UserID,
@@ -148,7 +148,7 @@ func (h *slashFix) handleRoomGet(w http.ResponseWriter, req *http.Request) {
 	if !h.decodeJSON(w, req, &body) {
 		return
 	}
-	result, err := h.vtSrv.GetRoom(NewVtContext(req.URL.Query().Get("language")), GetRoomInput{
+	result, err := h.liteService.GetRoom(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), GetRoomInput{
 		RoomName:     body.Name,
 		SessionToken: body.SessionToken,
 	})
@@ -164,7 +164,7 @@ func (h *slashFix) handleHostUpdate(w http.ResponseWriter, req *http.Request) {
 		h.respondError(w, err)
 		return
 	}
-	result, err := h.vtSrv.HostUpdateRoom(NewVtContext(req.URL.Query().Get("language")), HostUpdateInput{
+	result, err := h.liteService.HostUpdateRoom(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), HostUpdateInput{
 		CurrentTime:          body.CurrentTime,
 		Duration:             body.Duration,
 		LastUpdateClientTime: body.LastUpdateClientTime,
@@ -186,7 +186,7 @@ func (h *slashFix) handleMemberUpdate(w http.ResponseWriter, req *http.Request) 
 	if !h.decodeJSON(w, req, &body) {
 		return
 	}
-	result, _, err := h.vtSrv.UpdateMember(NewVtContext(req.URL.Query().Get("language")), MemberUpdateInput{
+	result, _, err := h.liteService.UpdateMember(NewVideoTogetherLiteContext(req.URL.Query().Get("language")), MemberUpdateInput{
 		CurrentURL:   body.CurrentURL,
 		IsLoading:    body.IsLoading,
 		RoomName:     body.RoomName,

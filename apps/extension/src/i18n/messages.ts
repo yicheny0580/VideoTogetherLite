@@ -1,4 +1,4 @@
-import { resolveLanguage, type Language } from "@videotogether/shared";
+import { resolveLanguage, type Language } from "@videotogetherlite/shared";
 
 import enUs from "../locales/en-us.json";
 import zhCn from "../locales/zh-cn.json";
@@ -29,8 +29,8 @@ export const popupMessages: Record<Language, {
 };
 
 export const helpLinks: Record<Language, string> = {
-  "en-us": "https://videotogether.github.io/guide/qa.html",
-  "zh-cn": "https://www.bilibili.com/opus/956528691876200471"
+  "en-us": "https://github.com/yicheny0580/VideoTogetherLite#readme",
+  "zh-cn": "https://github.com/yicheny0580/VideoTogetherLite/blob/main/README_zh.MD"
 };
 
 export function getMessages(language: unknown): LocaleMessages {

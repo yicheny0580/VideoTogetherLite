@@ -4,7 +4,7 @@ import {
   parseRole,
   stateKeys,
   type RoomState
-} from "@videotogether/shared";
+} from "@videotogetherlite/shared";
 
 export class PageStateStore {
   constructor(private readonly maxAgeSeconds: number) {}
@@ -17,22 +17,22 @@ export class PageStateStore {
 
   recover(currentLocation: Location): RoomState | null {
     const currentUrl = new URL(currentLocation.toString());
-    const urlTimestamp = Number.parseFloat(currentUrl.searchParams.get("VideoTogetherTimestamp") ?? "");
-    const sessionTimestamp = Number.parseFloat(sessionStorage.getItem("VideoTogetherTimestamp") ?? "");
+    const urlTimestamp = Number.parseFloat(currentUrl.searchParams.get("VideoTogetherLiteTimestamp") ?? "");
+    const sessionTimestamp = Number.parseFloat(sessionStorage.getItem("VideoTogetherLiteTimestamp") ?? "");
     const useUrl = !Number.isNaN(urlTimestamp)
       && (Number.isNaN(sessionTimestamp) || urlTimestamp >= sessionTimestamp);
     const getter = useUrl
       ? (key: string) => currentUrl.searchParams.get(key)
       : (key: string) => sessionStorage.getItem(key);
-    const timestamp = Number.parseFloat(getter("VideoTogetherTimestamp") ?? "");
+    const timestamp = Number.parseFloat(getter("VideoTogetherLiteTimestamp") ?? "");
 
     if (Number.isNaN(timestamp) || timestamp + this.maxAgeSeconds < Date.now() / 1000) {
       return null;
     }
 
-    const role = parseRole(getter("VideoTogetherRole"));
-    const roomName = getter("VideoTogetherRoomName");
-    const sessionToken = getter("VideoTogetherSessionToken");
+    const role = parseRole(getter("VideoTogetherLiteRole"));
+    const roomName = getter("VideoTogetherLiteRoomName");
+    const sessionToken = getter("VideoTogetherLiteSessionToken");
     if (!roomName || !sessionToken || role === null) {
       return null;
     }
@@ -42,7 +42,7 @@ export class PageStateStore {
       roomName,
       sessionToken,
       timestamp,
-      url: getter("VideoTogetherUrl") || linkWithoutState(currentLocation)
+      url: getter("VideoTogetherLiteUrl") || linkWithoutState(currentLocation)
     };
   }
 
@@ -51,10 +51,10 @@ export class PageStateStore {
       return;
     }
 
-    sessionStorage.setItem("VideoTogetherUrl", link);
-    sessionStorage.setItem("VideoTogetherRoomName", roomName);
-    sessionStorage.setItem("VideoTogetherSessionToken", sessionToken);
-    sessionStorage.setItem("VideoTogetherRole", String(role));
-    sessionStorage.setItem("VideoTogetherTimestamp", String(Date.now() / 1000));
+    sessionStorage.setItem("VideoTogetherLiteUrl", link);
+    sessionStorage.setItem("VideoTogetherLiteRoomName", roomName);
+    sessionStorage.setItem("VideoTogetherLiteSessionToken", sessionToken);
+    sessionStorage.setItem("VideoTogetherLiteRole", String(role));
+    sessionStorage.setItem("VideoTogetherLiteTimestamp", String(Date.now() / 1000));
   }
 }

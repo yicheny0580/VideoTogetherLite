@@ -1,4 +1,4 @@
-module github.com/VideoTogether/VideoTogether
+module github.com/yicheny0580/VideoTogetherLite/apps/server
 
 go 1.26
 

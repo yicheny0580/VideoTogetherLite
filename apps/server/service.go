@@ -19,15 +19,15 @@ const (
 	sessionRoleMember sessionRole = "member"
 )
 
-type VideoTogetherService struct {
+type VideoTogetherLiteService struct {
 	mu             sync.Mutex
 	rooms          map[string]*roomRecord
 	sessions       map[string]*sessionRecord
 	roomExpireTime time.Duration
 }
 
-func NewVideoTogetherService(roomExpireTime time.Duration) *VideoTogetherService {
-	return &VideoTogetherService{
+func NewVideoTogetherLiteService(roomExpireTime time.Duration) *VideoTogetherLiteService {
+	return &VideoTogetherLiteService{
 		rooms:          map[string]*roomRecord{},
 		sessions:       map[string]*sessionRecord{},
 		roomExpireTime: roomExpireTime,
@@ -38,7 +38,7 @@ func Timestamp() float64 {
 	return float64(time.Now().UnixMilli()) / 1000
 }
 
-func (s *VideoTogetherService) Timestamp() float64 {
+func (s *VideoTogetherLiteService) Timestamp() float64 {
 	return Timestamp()
 }
 
@@ -121,7 +121,7 @@ type RoomSessionResult struct {
 	Timestamp    float64
 }
 
-func (s *VideoTogetherService) JoinRoom(ctx *VtContext, input JoinRoomInput) (RoomSessionResult, error) {
+func (s *VideoTogetherLiteService) JoinRoom(ctx *VideoTogetherLiteContext, input JoinRoomInput) (RoomSessionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -147,7 +147,7 @@ func (s *VideoTogetherService) JoinRoom(ctx *VtContext, input JoinRoomInput) (Ro
 	}, nil
 }
 
-func (s *VideoTogetherService) GetRoom(ctx *VtContext, input GetRoomInput) (RoomSessionResult, error) {
+func (s *VideoTogetherLiteService) GetRoom(ctx *VideoTogetherLiteContext, input GetRoomInput) (RoomSessionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -166,7 +166,7 @@ func (s *VideoTogetherService) GetRoom(ctx *VtContext, input GetRoomInput) (Room
 	}, nil
 }
 
-func (s *VideoTogetherService) HostUpdateRoom(ctx *VtContext, input HostUpdateInput) (RoomSessionResult, error) {
+func (s *VideoTogetherLiteService) HostUpdateRoom(ctx *VideoTogetherLiteContext, input HostUpdateInput) (RoomSessionResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -213,7 +213,7 @@ func (s *VideoTogetherService) HostUpdateRoom(ctx *VtContext, input HostUpdateIn
 	}, nil
 }
 
-func (s *VideoTogetherService) UpdateMember(ctx *VtContext, input MemberUpdateInput) (RoomSessionResult, bool, error) {
+func (s *VideoTogetherLiteService) UpdateMember(ctx *VideoTogetherLiteContext, input MemberUpdateInput) (RoomSessionResult, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -242,7 +242,7 @@ func (s *VideoTogetherService) UpdateMember(ctx *VtContext, input MemberUpdateIn
 	}, changed, nil
 }
 
-func (s *VideoTogetherService) RemoveExpiredRooms() {
+func (s *VideoTogetherLiteService) RemoveExpiredRooms() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -259,13 +259,13 @@ func (s *VideoTogetherService) RemoveExpiredRooms() {
 	}
 }
 
-func (s *VideoTogetherService) RoomExists(name string) bool {
+func (s *VideoTogetherLiteService) RoomExists(name string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.queryRoomLocked(name) != nil
 }
 
-func (s *VideoTogetherService) queryRoomLocked(name string) *roomRecord {
+func (s *VideoTogetherLiteService) queryRoomLocked(name string) *roomRecord {
 	room := s.rooms[name]
 	if room == nil {
 		return nil
@@ -274,7 +274,7 @@ func (s *VideoTogetherService) queryRoomLocked(name string) *roomRecord {
 	return room
 }
 
-func (s *VideoTogetherService) createRoomLocked(name, passwordHash, hostID string) *roomRecord {
+func (s *VideoTogetherLiteService) createRoomLocked(name, passwordHash, hostID string) *roomRecord {
 	room := &roomRecord{
 		room: Room{
 			Duration:             1e9,
@@ -291,7 +291,7 @@ func (s *VideoTogetherService) createRoomLocked(name, passwordHash, hostID strin
 	return room
 }
 
-func (s *VideoTogetherService) authenticateLocked(roomName, token string, roles ...sessionRole) (*sessionRecord, error) {
+func (s *VideoTogetherLiteService) authenticateLocked(roomName, token string, roles ...sessionRole) (*sessionRecord, error) {
 	if roomName == "" {
 		return nil, newAppError(errInvalidRequest, "roomName is required")
 	}
@@ -309,7 +309,7 @@ func (s *VideoTogetherService) authenticateLocked(roomName, token string, roles 
 	return session, nil
 }
 
-func (s *VideoTogetherService) createSessionLocked(roomName, userID string, role sessionRole) (string, error) {
+func (s *VideoTogetherLiteService) createSessionLocked(roomName, userID string, role sessionRole) (string, error) {
 	token, err := randomToken()
 	if err != nil {
 		return "", err
@@ -323,7 +323,7 @@ func (s *VideoTogetherService) createSessionLocked(roomName, userID string, role
 	return token, nil
 }
 
-func (s *VideoTogetherService) invalidateHostSessionsLocked(roomName string) {
+func (s *VideoTogetherLiteService) invalidateHostSessionsLocked(roomName string) {
 	for tokenHash, session := range s.sessions {
 		if session.roomName == roomName && session.role == sessionRoleHost {
 			delete(s.sessions, tokenHash)
@@ -426,7 +426,7 @@ func hashToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func localizeAuthError(ctx *VtContext, err error) error {
+func localizeAuthError(ctx *VideoTogetherLiteContext, err error) error {
 	var appErr *appError
 	if errors.As(err, &appErr) && appErr.Code == errUnauthorized {
 		return newAppError(errUnauthorized, GetErrorMessage(ctx.Language).InvalidSession)

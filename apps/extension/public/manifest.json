@@ -1,6 +1,6 @@
 {
-  "name": "VideoTogether",
-  "description": "Watch video together",
+  "name": "VideoTogether Lite",
+  "description": "Sync video playback with friends",
   "version": "3.0.23",
   "manifest_version": 3,
   "content_scripts": [
@@ -21,13 +21,13 @@
     "type": "module"
   },
   "icons": {
-    "64": "icon/vt_64x64.png",
+    "64": "icon/videotogether-lite_64x64.png",
     "192": "icon/android-icon-192x192.png"
   },
   "permissions": ["storage"],
   "action": {
     "default_icon": {
-      "64": "icon/vt_64x64.png"
+      "64": "icon/videotogether-lite_64x64.png"
     },
     "default_popup": "popup.html"
   }

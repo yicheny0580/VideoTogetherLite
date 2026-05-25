@@ -1,19 +1,19 @@
-import type { VideoTogetherController } from "../page/app/VideoTogetherController";
+import type { VideoTogetherLiteController } from "../page/app/VideoTogetherLiteController";
 
 declare global {
   interface Window {
-    VideoTogetherLoading?: boolean;
-    VideoTogetherStorage?: {
+    VideoTogetherLiteLoading?: boolean;
+    VideoTogetherLiteStorage?: {
       PasswordProtectedRoom?: boolean;
       WaitForLoading?: boolean;
       WaitForLoadding?: boolean;
     };
-    videoTogetherExtension?: VideoTogetherController | null;
+    videoTogetherLiteExtension?: VideoTogetherLiteController | null;
   }
 
   interface HTMLVideoElement {
-    VideoTogetherActivatedTime?: number;
+    VideoTogetherLiteActivatedTime?: number;
     VideoTogetherLiteListenerAdded?: boolean;
-    VideoTogetherVideoId?: string;
+    VideoTogetherLiteVideoId?: string;
   }
 }

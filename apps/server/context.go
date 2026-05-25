@@ -1,11 +1,11 @@
 package main
 
-type VtContext struct {
+type VideoTogetherLiteContext struct {
 	Language string
 }
 
-func NewVtContext(language string) *VtContext {
-	return &VtContext{
+func NewVideoTogetherLiteContext(language string) *VideoTogetherLiteContext {
+	return &VideoTogetherLiteContext{
 		Language: language,
 	}
 }

@@ -18,7 +18,7 @@ export interface Room {
 
 export interface TimestampResponse {
   timestamp: number;
-  vtVersion?: number;
+  videoTogetherLiteVersion?: number;
 }
 
 export interface ApiErrorBody {

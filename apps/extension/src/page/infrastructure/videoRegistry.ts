@@ -95,13 +95,13 @@ export class VideoRegistry {
   }
 
   private createVideoModel(video: HTMLVideoElement): VideoModel {
-    if (video.VideoTogetherVideoId === undefined) {
-      video.VideoTogetherVideoId = generateUUID();
+    if (video.VideoTogetherLiteVideoId === undefined) {
+      video.VideoTogetherLiteVideoId = generateUUID();
     }
     return {
-      activatedTime: video.VideoTogetherActivatedTime || 0,
+      activatedTime: video.VideoTogetherLiteActivatedTime || 0,
       duration: video.duration,
-      id: video.VideoTogetherVideoId,
+      id: video.VideoTogetherLiteVideoId,
       refreshTime: Date.now() / 1000
     };
   }
@@ -137,10 +137,10 @@ export class VideoRegistry {
   }
 
   private setActivatedVideoDom(video: HTMLVideoElement): void {
-    if (video.VideoTogetherVideoId === undefined) {
-      video.VideoTogetherVideoId = generateUUID();
+    if (video.VideoTogetherLiteVideoId === undefined) {
+      video.VideoTogetherLiteVideoId = generateUUID();
     }
-    video.VideoTogetherActivatedTime = Date.now() / 1000;
+    video.VideoTogetherLiteActivatedTime = Date.now() / 1000;
     this.activatedVideo = this.createVideoModel(video);
   }
 }

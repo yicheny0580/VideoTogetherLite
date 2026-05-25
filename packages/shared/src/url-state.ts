@@ -1,12 +1,12 @@
 import { Role } from "./roles";
 
 export const stateKeys = [
-  "VideoTogetherUrl",
-  "VideoTogetherRoomName",
-  "VideoTogetherRole",
-  "VideoTogetherSessionToken",
-  "VideoTogetherPassword",
-  "VideoTogetherTimestamp"
+  "VideoTogetherLiteUrl",
+  "VideoTogetherLiteRoomName",
+  "VideoTogetherLiteRole",
+  "VideoTogetherLiteSessionToken",
+  "VideoTogetherLitePassword",
+  "VideoTogetherLiteTimestamp"
 ] as const;
 
 export interface RoomState {
@@ -29,11 +29,11 @@ export function linkWithMemberState(link: string, roomName: string, sessionToken
   const url = new URL(link);
   const oldSearch = url.search;
   url.search = "";
-  url.searchParams.set("VideoTogetherUrl", link);
-  url.searchParams.set("VideoTogetherRoomName", roomName);
-  url.searchParams.set("VideoTogetherSessionToken", sessionToken);
-  url.searchParams.set("VideoTogetherRole", String(role));
-  url.searchParams.set("VideoTogetherTimestamp", String(Date.now() / 1000));
+  url.searchParams.set("VideoTogetherLiteUrl", link);
+  url.searchParams.set("VideoTogetherLiteRoomName", roomName);
+  url.searchParams.set("VideoTogetherLiteSessionToken", sessionToken);
+  url.searchParams.set("VideoTogetherLiteRole", String(role));
+  url.searchParams.set("VideoTogetherLiteTimestamp", String(Date.now() / 1000));
 
   const stateUrl = oldSearch.length > 1
     ? `${url.toString()}&${oldSearch.slice(1)}`
