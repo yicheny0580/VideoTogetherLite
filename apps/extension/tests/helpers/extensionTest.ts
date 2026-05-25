@@ -10,6 +10,7 @@ type OpenFixture = (pathname?: string, options?: { waitForPanel?: boolean }) => 
 type OpenIsolatedFixture = (pathname?: string, options?: { waitForPanel?: boolean }) => Promise<Page>;
 type OpenExternal = (url: string, options?: { waitForPanel?: boolean }) => Promise<Page>;
 type OpenPopup = () => Promise<Page>;
+type OpenPopupForPage = (targetPage: Page) => Promise<Page>;
 
 interface ExtensionFixtures {
   extensionContext: BrowserContext;
@@ -20,6 +21,7 @@ interface ExtensionFixtures {
   openIsolatedExternal: OpenExternal;
   openIsolatedFixture: OpenIsolatedFixture;
   openPopup: OpenPopup;
+  openPopupForPage: OpenPopupForPage;
 }
 
 const extensionRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
@@ -40,6 +42,24 @@ const extensionLaunchArgs = [
   "--no-sandbox"
 ];
 
+async function getExtensionId(context: BrowserContext): Promise<string> {
+  const serviceWorker = context.serviceWorkers()[0]
+    ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
+  const extensionId = serviceWorker.url().split("/")[2];
+  if (!extensionId) {
+    throw new Error(`Could not resolve extension ID from ${serviceWorker.url()}`);
+  }
+  return extensionId;
+}
+
+async function waitForExtensionController(page: Page): Promise<void> {
+  await expect.poll(async () => page.evaluate(() => Boolean(
+    (window as Window & { videoTogetherLiteExtension?: unknown }).videoTogetherLiteExtension
+  )), {
+    timeout: 30_000
+  }).toBe(true);
+}
+
 export const test = base.extend<ExtensionFixtures>({
   extensionContext: async ({ browserName: _browserName, headless }, runFixture) => {
     await access(extensionManifest);
@@ -59,13 +79,7 @@ export const test = base.extend<ExtensionFixtures>({
   },
 
   extensionId: async ({ extensionContext }, runFixture) => {
-    const serviceWorker = extensionContext.serviceWorkers()[0]
-      ?? await extensionContext.waitForEvent("serviceworker", { timeout: 15_000 });
-    const extensionId = serviceWorker.url().split("/")[2];
-    if (!extensionId) {
-      throw new Error(`Could not resolve extension ID from ${serviceWorker.url()}`);
-    }
-    await runFixture(extensionId);
+    await runFixture(await getExtensionId(extensionContext));
   },
 
   fixtureServer: async ({ browserName: _browserName }, runFixture) => {
@@ -82,7 +96,7 @@ export const test = base.extend<ExtensionFixtures>({
       const page = await extensionContext.newPage();
       await page.goto(url, { timeout: 60_000, waitUntil: "domcontentloaded" });
       if (options.waitForPanel !== false) {
-        await expect(page.locator("#videoTogetherLiteFlyPanel")).toBeVisible({ timeout: 30_000 });
+        await waitForExtensionController(page);
       }
       return page;
     });
@@ -93,7 +107,7 @@ export const test = base.extend<ExtensionFixtures>({
       const page = await extensionContext.newPage();
       await page.goto(fixtureServer.url(pathname));
       if (options.waitForPanel !== false) {
-        await expect(page.locator("#videoTogetherLiteFlyPanel")).toBeVisible();
+        await waitForExtensionController(page);
       }
       return page;
     });
@@ -113,7 +127,7 @@ export const test = base.extend<ExtensionFixtures>({
         const page = await context.newPage();
         await page.goto(url, { timeout: 60_000, waitUntil: "domcontentloaded" });
         if (options.waitForPanel !== false) {
-          await expect(page.locator("#videoTogetherLiteFlyPanel")).toBeVisible({ timeout: 30_000 });
+          await waitForExtensionController(page);
         }
         return page;
       });
@@ -139,7 +153,7 @@ export const test = base.extend<ExtensionFixtures>({
         const page = await context.newPage();
         await page.goto(fixtureServer.url(pathname));
         if (options.waitForPanel !== false) {
-          await expect(page.locator("#videoTogetherLiteFlyPanel")).toBeVisible();
+          await waitForExtensionController(page);
         }
         return page;
       });
@@ -156,6 +170,18 @@ export const test = base.extend<ExtensionFixtures>({
       const page = await extensionContext.newPage();
       await page.goto(`chrome-extension://${extensionId}/popup.html`);
       return page;
+    });
+  },
+
+  openPopupForPage: async ({ browserName: _browserName }, runFixture) => {
+    await runFixture(async (targetPage) => {
+      await targetPage.bringToFront();
+      await waitForExtensionController(targetPage);
+      const extensionId = await getExtensionId(targetPage.context());
+      const popup = await targetPage.context().newPage();
+      await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+      await expect(popup.locator("#videoTogetherLiteExtensionSwitch")).toBeVisible();
+      return popup;
     });
   }
 });

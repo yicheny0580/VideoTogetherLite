@@ -203,40 +203,44 @@ async function syncPausedYouTubeVideo({
   expectedBobSeekCount,
   openExternal,
   openIsolatedExternal,
+  openPopupForPage,
   targetSeconds,
   url
 }: {
   expectedBobSeekCount: number;
   openExternal: (url: string) => Promise<Page>;
   openIsolatedExternal: (url: string) => Promise<Page>;
+  openPopupForPage: (targetPage: Page) => Promise<Page>;
   targetSeconds: number;
   url: string;
-}): Promise<{ alice: Page; bob: Page }> {
+}): Promise<{ alice: Page; alicePopup: Page; bob: Page; bobPopup: Page }> {
   const alice = await openExternal(url);
   await waitForYouTubePlayer(alice);
   await installYouTubeSeekCounter(alice);
-  await fillNickname(alice, "Alice");
-  await createButton(alice).click();
-  await expect(alice.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  await pickFirstVideo(alice);
-  await expect(alice.locator(".vtl-participant-video").filter({ hasText: "Alice" })).toBeVisible({
+  const alicePopup = await openPopupForPage(alice);
+  await fillNickname(alicePopup, "Alice");
+  await createButton(alicePopup).click();
+  await expect(alicePopup.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await pickFirstVideo(alicePopup, alice);
+  await expect(alicePopup.locator(".vtl-participant-video").filter({ hasText: "Alice" })).toBeVisible({
     timeout: 30_000
   });
   await setYouTubePausedTime(alice, targetSeconds);
   await resetYouTubeSeekCount(alice);
-  await expect(statusText(alice)).toContainText("Sync");
+  await expect(statusText(alicePopup)).toContainText("Sync");
   await expectNoYouTubePlaybackError(alice);
-  const inviteCode = await inviteCodeText(alice).innerText();
+  const inviteCode = await inviteCodeText(alicePopup).innerText();
   expect(inviteCode).toContain(".");
 
   const bob = await openIsolatedExternal(url);
   await waitForYouTubePlayer(bob);
   await installYouTubeSeekCounter(bob);
-  await fillNickname(bob, "Bob");
-  await fillInvite(bob, inviteCode);
-  await joinButton(bob).click();
-  await expect(bob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  await bob.getByRole("button", { name: "Follow" }).click();
+  const bobPopup = await openPopupForPage(bob);
+  await fillNickname(bobPopup, "Bob");
+  await fillInvite(bobPopup, inviteCode);
+  await joinButton(bobPopup).click();
+  await expect(bobPopup.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await bobPopup.getByRole("button", { name: "Follow" }).click();
 
   await waitForYouTubeTime(bob, targetSeconds, 30_000, 5);
   await expectNoYouTubePlaybackError(bob);
@@ -244,12 +248,13 @@ async function syncPausedYouTubeVideo({
   expect(await getYouTubeSeekCount(alice)).toBe(0);
   expect(await getYouTubeSeekCount(bob)).toBe(expectedBobSeekCount);
 
-  return { alice, bob };
+  return { alice, alicePopup, bob, bobPopup };
 }
 
 test("syncs a real YouTube video through the YouTube adapter", async ({
   openExternal,
-  openIsolatedExternal
+  openIsolatedExternal,
+  openPopupForPage
 }, testInfo) => {
   testInfo.setTimeout(120_000);
 
@@ -257,6 +262,7 @@ test("syncs a real YouTube video through the YouTube adapter", async ({
     expectedBobSeekCount: 1,
     openExternal,
     openIsolatedExternal,
+    openPopupForPage,
     targetSeconds: targetTime,
     url: youtubeTestUrl
   });
@@ -264,7 +270,8 @@ test("syncs a real YouTube video through the YouTube adapter", async ({
 
 test("does not crash or spam seeks after a long YouTube seek", async ({
   openExternal,
-  openIsolatedExternal
+  openIsolatedExternal,
+  openPopupForPage
 }, testInfo) => {
   testInfo.setTimeout(150_000);
 
@@ -272,6 +279,7 @@ test("does not crash or spam seeks after a long YouTube seek", async ({
     expectedBobSeekCount: 0,
     openExternal,
     openIsolatedExternal,
+    openPopupForPage,
     targetSeconds: longVideoTargetTime,
     url: youtubeTestUrl
   });
@@ -283,14 +291,16 @@ test("does not crash or spam seeks after a long YouTube seek", async ({
 
 test("keeps a followed YouTube room synced after active seeks", async ({
   openExternal,
-  openIsolatedExternal
+  openIsolatedExternal,
+  openPopupForPage
 }, testInfo) => {
   testInfo.setTimeout(180_000);
 
-  const { alice, bob } = await syncPausedYouTubeVideo({
+  const { alice, alicePopup, bob } = await syncPausedYouTubeVideo({
     expectedBobSeekCount: 1,
     openExternal,
     openIsolatedExternal,
+    openPopupForPage,
     targetSeconds: targetTime,
     url: youtubeTestUrl
   });
@@ -307,7 +317,7 @@ test("keeps a followed YouTube room synced after active seeks", async ({
   await expectNoUrlTimestampAfter(alice);
   await expectUrlTimestamp(bob, activeUnbufferedTargetTime);
   await waitForYouTubeTime(bob, activeUnbufferedTargetTime, 60_000);
-  await expect(alice.locator(".vtl-participant-video").filter({ hasText: "Alice" })).toBeVisible({
+  await expect(alicePopup.locator(".vtl-participant-video").filter({ hasText: "Alice" })).toBeVisible({
     timeout: 30_000
   });
   await expectNoYouTubePlaybackError(bob);

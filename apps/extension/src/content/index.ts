@@ -1,6 +1,18 @@
+import type {
+  PagePanelResponse,
+  PanelCommandResponse,
+  PopupPanelRequest
+} from "../bridge/panelBridge";
+
 const blockedHosts = new Set(["challenges.cloudflare.com"]);
+const contentRequestSource = "VideoTogetherLiteContent";
+const contentResponseSource = "VideoTogetherLiteContent";
 const languages = ["en-us", "zh-cn"] as const;
 const nicknameKey = "VideoTogetherLiteNickname";
+const pageResponseSource = "VideoTogetherLitePage";
+const panelCommandResultType = "panel.command.result";
+const panelCommandType = "panel.command";
+const popupRequestSource = "VideoTogetherLitePopup";
 const roomStateKey = "VideoTogetherLiteRoomState";
 const userIdKey = "VideoTogetherLiteUserId";
 
@@ -57,63 +69,6 @@ function resolveLanguage(candidate: unknown): Language {
 
 function sendEnabledStatus(enabled: boolean): void {
   chrome.runtime.sendMessage({ enabled, type: 4 }).catch(() => undefined);
-}
-
-function mountLoadingIndicator(): void {
-  if (document.getElementById("videoTogetherLiteLoading")) {
-    return;
-  }
-
-  const loading = document.createElement("div");
-  loading.id = "videoTogetherLiteLoading";
-  loading.innerHTML = `
-    <div id="videoTogetherLiteLoadingWrap">
-      <img src="${chrome.runtime.getURL("icon/videotogether-lite_64x64.png")}" alt="">
-      <a target="_blank" href="https://github.com/yicheny0580/VideoTogetherLite#readme">loading ...</a>
-    </div>
-  `;
-
-  const style = document.createElement("style");
-  style.textContent = `
-    #videoTogetherLiteLoading {
-      align-items: center;
-      background: #ffffff;
-      border: 1px solid #c9c8c8;
-      border-radius: 5px;
-      bottom: 15px;
-      box-shadow: 0 3px 6px -4px #0000001f, 0 6px 16px #00000014, 0 9px 28px 8px #0000000d;
-      color: #212529;
-      display: flex;
-      height: 50px;
-      position: fixed;
-      right: 15px;
-      text-align: center;
-      touch-action: none;
-      width: 250px;
-      z-index: 2147483646;
-    }
-    #videoTogetherLiteLoadingWrap {
-      align-items: center;
-      display: flex;
-      justify-content: center;
-      width: 100%;
-    }
-    #videoTogetherLiteLoadingWrap img {
-      height: 16px;
-      margin-right: 12px;
-      width: 16px;
-    }
-    #videoTogetherLiteLoadingWrap a {
-      color: #212529;
-      text-decoration: none;
-    }
-    #videoTogetherLiteLoadingWrap a:hover {
-      color: #1890ff;
-      text-decoration: underline;
-    }
-  `;
-  loading.appendChild(style);
-  (document.body || document.documentElement).appendChild(loading);
 }
 
 function listenForProfileUpdates(): void {
@@ -177,6 +132,78 @@ function listenForRoomStateMessages(): void {
   });
 }
 
+function listenForPopupPanelMessages(): void {
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (!isPopupPanelRequest(message)) {
+      return false;
+    }
+
+    forwardPanelRequest(message).then(sendResponse);
+    return true;
+  });
+}
+
+function forwardPanelRequest(request: PopupPanelRequest): Promise<PanelCommandResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      cleanup();
+      resolve({
+        error: "VideoTogether Lite is not ready on this page",
+        id: request.id,
+        ok: false,
+        source: contentResponseSource
+      });
+    }, 2_000);
+
+    const onMessage = (event: MessageEvent<unknown>) => {
+      if (event.source !== window || !isPagePanelResponse(event.data) || event.data.id !== request.id) {
+        return;
+      }
+
+      cleanup();
+      resolve({
+        ...event.data,
+        source: contentResponseSource
+      });
+    };
+
+    function cleanup(): void {
+      window.clearTimeout(timeout);
+      window.removeEventListener("message", onMessage);
+    }
+
+    window.addEventListener("message", onMessage);
+    window.postMessage({
+      command: request.command,
+      id: request.id,
+      source: contentRequestSource,
+      type: panelCommandType
+    }, "*");
+  });
+}
+
+function isPopupPanelRequest(candidate: unknown): candidate is PopupPanelRequest {
+  if (typeof candidate !== "object" || candidate === null) {
+    return false;
+  }
+  const message = candidate as Partial<PopupPanelRequest>;
+  return message.source === popupRequestSource
+    && typeof message.id === "string"
+    && typeof message.command === "object"
+    && message.command !== null;
+}
+
+function isPagePanelResponse(candidate: unknown): candidate is PagePanelResponse {
+  if (typeof candidate !== "object" || candidate === null) {
+    return false;
+  }
+  const message = candidate as Partial<PagePanelResponse>;
+  return message.source === pageResponseSource
+    && message.type === panelCommandResultType
+    && typeof message.id === "string"
+    && typeof message.ok === "boolean";
+}
+
 function injectPageScript(language: Language, userId: string, nickname: string): void {
   const script = document.createElement("script");
   const source = new URL(chrome.runtime.getURL("page.js"));
@@ -205,8 +232,8 @@ async function main(): Promise<void> {
   const userId = await getOrCreateUserId();
   const nickname = await getValue<string>(nicknameKey) ?? "";
   listenForProfileUpdates();
+  listenForPopupPanelMessages();
   listenForRoomStateMessages();
-  mountLoadingIndicator();
   injectPageScript(language, userId, nickname);
 }
 

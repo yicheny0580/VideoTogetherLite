@@ -1,15 +1,7 @@
 import { resolveLanguage } from "@videotogetherlite/shared";
 
 import { VideoTogetherLiteController } from "./app/VideoTogetherLiteController";
-import { mountFloatingPanel } from "./ui/mountFloatingPanel";
-
-function postMessageToSelf(type: number, data: unknown): void {
-  window.postMessage({
-    data,
-    source: "VideoTogetherLite",
-    type
-  }, "*");
-}
+import { listenForPopupPanelCommands } from "./app/popupCommandBridge";
 
 function getParamFromScriptUrl(name: string): string {
   try {
@@ -31,9 +23,8 @@ if (!window.VideoTogetherLiteLoading) {
         getParamFromScriptUrl("nickname")
       );
       window.videoTogetherLiteExtension = controller;
-      mountFloatingPanel(controller, language);
+      listenForPopupPanelCommands(controller);
       controller.start();
-      postMessageToSelf(17, {});
     }
   } catch (error) {
     console.error(error);

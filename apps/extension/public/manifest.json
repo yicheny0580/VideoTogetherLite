@@ -24,7 +24,7 @@
     "64": "icon/videotogether-lite_64x64.png",
     "192": "icon/android-icon-192x192.png"
   },
-  "permissions": ["storage"],
+  "permissions": ["storage", "activeTab"],
   "action": {
     "default_icon": {
       "64": "icon/videotogether-lite_64x64.png"

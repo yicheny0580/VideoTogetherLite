@@ -14,16 +14,19 @@ const messages: Record<Language, LocaleMessages> = {
 export const popupMessages: Record<Language, {
   disabled: string;
   enabled: string;
+  pageUnavailable: string;
   refreshAfterChange: string;
 }> = {
   "en-us": {
     disabled: "Disabled",
     enabled: "Enabled",
+    pageUnavailable: "Open a page with VideoTogether Lite enabled to control the room.",
     refreshAfterChange: "Please refresh the page after change"
   },
   "zh-cn": {
     disabled: "停用",
     enabled: "启用",
+    pageUnavailable: "打开已启用 VideoTogether Lite 的网页后即可控制房间。",
     refreshAfterChange: "启用或禁用后请刷新网页生效"
   }
 };

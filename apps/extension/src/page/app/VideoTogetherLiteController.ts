@@ -12,7 +12,6 @@ import { VideoRegistry } from "../infrastructure/videoRegistry";
 import { getServiceHost, stateMaxAgeSeconds } from "./config";
 import { getDisplayTimeText, getPlaybackIdentityUrl } from "./controllerUtils";
 import { followParticipantVideo, normalizeNickname, startVideoPickerFlow, syncFollowTargetVideo, toParticipantPanelState, updateParticipantRoom } from "./controllerState";
-import { getFullscreenChipLabels, removeFullscreenChip, updateFullscreenChip } from "./fullscreenChip";
 import { initialPanelState, type PanelState, type StatusTone } from "./panelState";
 
 export type { PanelState, ParticipantPanelState, StatusTone } from "./panelState";
@@ -21,7 +20,6 @@ type Listener = () => void;
 
 export class VideoTogetherLiteController {
   private readonly apiClient: VideoTogetherLiteApiClient;
-  private fullscreenChip: HTMLDivElement | null = null;
   private httpSucc = false;
   private inviteCode = "";
   private lastRoom: Room | null = null;
@@ -80,14 +78,13 @@ export class VideoTogetherLiteController {
   clearFocusedVideo(): void {
     this.videoRegistry.clearFocus();
     this.setPanelState({ focusedVideo: null, sharing: false });
-    this.updateFullscreenChip();
     void this.scheduledTask();
   }
 
-  createRoom(nickname: string): void {
+  createRoom(nickname: string): Promise<void> {
     const normalizedNickname = normalizeNickname(nickname, this.message("default_nickname"));
     this.setNickname(normalizedNickname);
-    void this.createRoomAsync(normalizedNickname);
+    return this.createRoomAsync(normalizedNickname);
   }
 
   dispose(): void {
@@ -96,8 +93,6 @@ export class VideoTogetherLiteController {
     }
     this.wsClient.disconnect();
     this.videoRegistry.disconnect();
-    document.removeEventListener("fullscreenchange", this.fullscreenListener);
-    this.fullscreenChip = removeFullscreenChip(this.fullscreenChip);
   }
 
   exitRoom(): void {
@@ -108,32 +103,36 @@ export class VideoTogetherLiteController {
     }
   }
 
-  followParticipant(userId: string): void {
+  followParticipant(userId: string): Promise<void> {
     this.setPanelState({ followUserId: userId });
+    let followPromise = Promise.resolve();
     followParticipantVideo({
       followUserId: userId,
       notSharingText: this.message("participant_not_sharing"),
-      onFollow: () => void this.syncFollowTarget(this.lastRoom),
+      onFollow: () => {
+        followPromise = this.syncFollowTarget(this.lastRoom);
+      },
       onStatus: (text, tone) => this.updateStatus(text, tone),
       room: this.lastRoom,
       roomCode: this.panelState.roomCode,
       saveState: (followUserId) => this.saveState(followUserId),
       sessionToken: this.sessionToken
     });
+    return followPromise;
   }
 
   getPanelState = (): PanelState => this.panelState;
 
-  joinRoom(inviteCode: string, nickname: string): void {
+  joinRoom(inviteCode: string, nickname: string): Promise<void> {
     const normalizedInvite = inviteCode.trim();
     if (normalizedInvite === "") {
       this.updateStatus(this.message("please_input_invite_code"), "danger");
-      return;
+      return Promise.resolve();
     }
 
     const normalizedNickname = normalizeNickname(nickname, this.message("default_nickname"));
     this.setNickname(normalizedNickname);
-    void this.joinRoomAsync(normalizedInvite, normalizedNickname);
+    return this.joinRoomAsync(normalizedInvite, normalizedNickname);
   }
 
   setNickname(nickname: string): void {
@@ -150,14 +149,13 @@ export class VideoTogetherLiteController {
   start(): void {
     this.videoRegistry.observe();
     void this.recoverState();
-    document.addEventListener("fullscreenchange", this.fullscreenListener);
     this.timer = window.setInterval(() => void this.scheduledTask(true), 2000);
   }
 
   startVideoPicker(): void {
     startVideoPickerFlow({
       onSchedule: () => void this.scheduledTask(),
-      onUpdateFullscreen: () => this.updateFullscreenChip(),
+      onUpdateFullscreen: () => undefined,
       setPanelState: (next) => this.setPanelState(next),
       text: {
         focused: this.message("video_focused"),
@@ -168,14 +166,23 @@ export class VideoTogetherLiteController {
     });
   }
 
+  stopFollowing(): void {
+    this.setPanelState({
+      followUserId: "",
+      participants: this.panelState.participants.map((participant) => ({
+        ...participant,
+        isFollowing: false
+      }))
+    });
+    this.saveState("");
+  }
+
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
     };
   };
-
-  private readonly fullscreenListener = (): void => this.updateFullscreenChip();
 
   private applyRoomInfo(room: Room | null): void {
     if (!room) {
@@ -222,7 +229,6 @@ export class VideoTogetherLiteController {
       ...initialPanelState(this.message("global_notification"), this.panelState.nickname),
       focusedVideo: this.videoRegistry.getFocusedVideoSummary()
     });
-    this.updateFullscreenChip();
   }
 
   private async createRoomAsync(nickname: string): Promise<void> {
@@ -376,19 +382,6 @@ export class VideoTogetherLiteController {
       videoRegistry: this.videoRegistry,
       wsClient: this.wsClient
     });
-  }
-
-  private updateFullscreenChip(): void {
-    this.fullscreenChip = updateFullscreenChip(
-      this.fullscreenChip,
-      this.videoRegistry.getVideoDom(),
-      getFullscreenChipLabels((key) => this.message(key)),
-      this.panelState.sharing,
-      {
-        onExitRoom: () => this.exitRoom(),
-        onOpenPanel: () => void document.exitFullscreen?.()
-      }
-    );
   }
 
   private updateStatus(statusText: string, statusTone: StatusTone): void { this.setPanelState({ statusText, statusTone }); }

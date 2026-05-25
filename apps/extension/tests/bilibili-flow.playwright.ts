@@ -192,56 +192,62 @@ async function resetBilibiliSeekCount(page: Page): Promise<void> {
 async function syncPausedBilibiliVideo({
   openExternal,
   openIsolatedExternal,
+  openPopupForPage,
   targetSeconds,
   url
 }: {
   openExternal: (url: string) => Promise<Page>;
   openIsolatedExternal: (url: string) => Promise<Page>;
+  openPopupForPage: (targetPage: Page) => Promise<Page>;
   targetSeconds: number;
   url: string;
-}): Promise<{ alice: Page; bob: Page }> {
+}): Promise<{ alice: Page; alicePopup: Page; bob: Page }> {
   const alice = await openExternal(url);
   await waitForBilibiliPlayer(alice);
-  await fillNickname(alice, "Alice");
-  await createButton(alice).click();
-  await expect(alice.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  await pickFirstVideo(alice);
-  await expect(alice.locator(".vtl-participant-video").filter({ hasText: "Alice" })).toBeVisible({
+  const alicePopup = await openPopupForPage(alice);
+  await fillNickname(alicePopup, "Alice");
+  await createButton(alicePopup).click();
+  await expect(alicePopup.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await pickFirstVideo(alicePopup, alice);
+  await expect(alicePopup.locator(".vtl-participant-video").filter({ hasText: "Alice" })).toBeVisible({
     timeout: 30_000
   });
   await setBilibiliPausedTime(alice, targetSeconds);
-  await expect(statusText(alice)).toContainText("Sync");
+  await expect(statusText(alicePopup)).toContainText("Sync");
   await expectNoBilibiliPlaybackError(alice);
-  const inviteCode = await inviteCodeText(alice).innerText();
+  const inviteCode = await inviteCodeText(alicePopup).innerText();
   expect(inviteCode).toContain(".");
 
   const bob = await openIsolatedExternal(url);
   await waitForBilibiliPlayer(bob);
   await installBilibiliSeekCounter(bob);
   await resetBilibiliSeekCount(bob);
-  await fillNickname(bob, "Bob");
-  await fillInvite(bob, inviteCode);
-  await joinButton(bob).click();
-  await expect(bob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  await bob.getByRole("button", { name: "Follow" }).click();
+  const bobPopup = await openPopupForPage(bob);
+  await fillNickname(bobPopup, "Bob");
+  await fillInvite(bobPopup, inviteCode);
+  await joinButton(bobPopup).click();
+  await expect(bobPopup.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await bobPopup.getByRole("button", { name: "Follow" }).click();
 
   await waitForBilibiliTime(bob, targetSeconds, 45_000, 3);
   await expectNoBilibiliPlaybackError(bob);
   await expectNoBilibiliPlaybackError(alice);
   expect(await getBilibiliSeekCount(bob)).toBeGreaterThanOrEqual(1);
 
-  return { alice, bob };
+  return { alice, alicePopup, bob };
 }
 
 test("syncs a real Bilibili video through the Bilibili adapter", async ({
   openExternal,
-  openIsolatedExternal
+  openIsolatedExternal,
+  openPopupForPage
 }, testInfo) => {
   testInfo.setTimeout(150_000);
 
   await syncPausedBilibiliVideo({
     openExternal,
     openIsolatedExternal,
+    openPopupForPage,
     targetSeconds: initialTargetTime,
     url: bilibiliTestUrl
   });
@@ -249,13 +255,15 @@ test("syncs a real Bilibili video through the Bilibili adapter", async ({
 
 test("keeps a followed Bilibili room synced after host seeks", async ({
   openExternal,
-  openIsolatedExternal
+  openIsolatedExternal,
+  openPopupForPage
 }, testInfo) => {
   testInfo.setTimeout(180_000);
 
   const { alice, bob } = await syncPausedBilibiliVideo({
     openExternal,
     openIsolatedExternal,
+    openPopupForPage,
     targetSeconds: initialTargetTime,
     url: bilibiliTestUrl
   });

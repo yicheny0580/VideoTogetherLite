@@ -30,30 +30,36 @@ test("popup enable switch controls fixture injection", async ({ openFixture, ope
 
   await switchControl.click();
   await expect(enabledSwitch).toBeChecked();
-  await expect(popup.getByText("Enabled")).toBeVisible();
+  await expect(popup.getByText("Enabled", { exact: true })).toBeVisible();
   const enabledPage = await openFixture("/host");
-  await expect(enabledPage.locator("#videoTogetherLiteFlyPanel")).toBeVisible();
+  await expectNoPanel(enabledPage);
 });
 
-test("creates a participant room and follows an explicitly focused video", async ({ openFixture, openIsolatedFixture }) => {
+test("creates a participant room and follows an explicitly focused video", async ({
+  openFixture,
+  openIsolatedFixture,
+  openPopupForPage
+}) => {
   const alice = await openFixture("/host");
-  await fillNickname(alice, "Alice");
+  const alicePopup = await openPopupForPage(alice);
+  await fillNickname(alicePopup, "Alice");
   await setFixtureVideo(alice, { currentTime: 12, paused: true, playbackRate: 1.25 });
-  await createButton(alice).click();
-  await expect(alice.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  await pickFirstVideo(alice);
-  await expect(statusText(alice)).toContainText("Sync");
-  const inviteCode = await inviteCodeText(alice).innerText();
+  await createButton(alicePopup).click();
+  await expect(alicePopup.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await pickFirstVideo(alicePopup, alice);
+  await expect(statusText(alicePopup)).toContainText("Sync");
+  const inviteCode = await inviteCodeText(alicePopup).innerText();
   expect(inviteCode).toContain(".");
 
   const bob = await openIsolatedFixture("/host");
-  await fillNickname(bob, "Bob");
+  const bobPopup = await openPopupForPage(bob);
+  await fillNickname(bobPopup, "Bob");
   await setFixtureVideo(bob, { currentTime: 0, paused: true, playbackRate: 1 });
-  await fillInvite(bob, inviteCode);
-  await joinButton(bob).click();
-  await expect(bob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  await bob.getByRole("button", { name: "Follow" }).click();
-  await expect(participantCount(alice)).toContainText("2");
+  await fillInvite(bobPopup, inviteCode);
+  await joinButton(bobPopup).click();
+  await expect(bobPopup.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await bobPopup.getByRole("button", { name: "Follow" }).click();
+  await expect(participantCount(alicePopup)).toContainText("2");
   await expectVideoState(bob, {
     currentTime: 12,
     paused: true,
@@ -90,40 +96,54 @@ test("creates a participant room and follows an explicitly focused video", async
   });
 
   await bob.reload();
-  await expect(bob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  await expect(bob.getByRole("button", { name: "Following" })).toBeVisible();
+  await bobPopup.close();
+  const reloadedBobPopup = await openPopupForPage(bob);
+  await expect(reloadedBobPopup.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await expect(reloadedBobPopup.getByRole("button", { name: "Stop follow" })).toBeVisible();
 
   const bobContext = bob.context();
   const bobUrl = bob.url();
+  await reloadedBobPopup.close();
   await bob.close();
   const reopenedBob = await bobContext.newPage();
   await reopenedBob.goto(bobUrl);
-  await expect(reopenedBob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  await expect(reopenedBob.getByRole("button", { name: "Following" })).toBeVisible();
+  const reopenedBobPopup = await openPopupForPage(reopenedBob);
+  await expect(reopenedBobPopup.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await expect(reopenedBobPopup.getByRole("button", { name: "Stop follow" })).toBeVisible();
 
-  await exitButton(reopenedBob).click();
-  await expect(createButton(reopenedBob)).toBeVisible();
+  await reopenedBobPopup.getByRole("button", { name: "Stop follow" }).click();
+  await expect(reopenedBobPopup.getByRole("button", { name: "Follow" })).toBeVisible();
+  await expect(reopenedBobPopup.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  await setFixtureVideo(alice, { currentTime: 70, paused: true, playbackRate: 1.25 });
+  await reopenedBob.waitForTimeout(3_000);
+  expect(Math.abs((await getFixtureVideo(reopenedBob)).currentTime - 70)).toBeGreaterThan(1.5);
+
+  await exitButton(reopenedBobPopup).click();
+  await expect(createButton(reopenedBobPopup)).toBeVisible();
   expect(await reopenedBob.evaluate(() => sessionStorage.getItem("VideoTogetherLiteRoomCode")))
     .toBeNull();
 });
 
-test("keeps focus explicit and reports invalid invite or missing videos", async ({ openFixture }) => {
+test("keeps focus explicit and reports invalid invite or missing videos", async ({ openFixture, openPopupForPage }) => {
   const alice = await openFixture("/host");
-  await fillNickname(alice, "Alice");
-  await createButton(alice).click();
-  await expect(alice.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
-  const roomCode = (await inviteCodeText(alice).innerText()).split(".")[0]!;
+  const alicePopup = await openPopupForPage(alice);
+  await fillNickname(alicePopup, "Alice");
+  await createButton(alicePopup).click();
+  await expect(alicePopup.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
+  const roomCode = (await inviteCodeText(alicePopup).innerText()).split(".")[0]!;
 
   const bob = await openFixture("/member");
-  await fillNickname(bob, "Bob");
-  await fillInvite(bob, `${roomCode}.badsecret`);
-  await joinButton(bob).click();
-  await expect(statusText(bob)).toContainText("Wrong invite code");
-  await expect(joinButton(bob)).toBeVisible();
+  const bobPopup = await openPopupForPage(bob);
+  await fillNickname(bobPopup, "Bob");
+  await fillInvite(bobPopup, `${roomCode}.badsecret`);
+  await joinButton(bobPopup).click();
+  await expect(statusText(bobPopup)).toContainText("Wrong invite code");
+  await expect(joinButton(bobPopup)).toBeVisible();
 
   const noVideo = await openFixture("/no-video");
-  await fillNickname(noVideo, "No Video");
-  await createButton(noVideo).click();
-  await pickVideoButton(noVideo).click();
-  await expect(statusText(noVideo)).toContainText("No videos found");
+  const noVideoPopup = await openPopupForPage(noVideo);
+  await fillNickname(noVideoPopup, "No Video");
+  await createButton(noVideoPopup).click();
+  await pickVideoButton(noVideoPopup).click();
+  await expect(statusText(noVideoPopup)).toContainText("No videos found");
 });

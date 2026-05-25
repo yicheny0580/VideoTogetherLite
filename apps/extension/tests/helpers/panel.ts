@@ -51,6 +51,8 @@ export function statusText(page: Page): Locator {
 export async function expectNoPanel(page: Page): Promise<void> {
   await page.waitForTimeout(500);
   await expect(page.locator("#VideoTogetherLiteWrapper")).toHaveCount(0);
+  await expect(page.locator("#videoTogetherLiteFlyPanel")).toHaveCount(0);
+  await expect(page.locator("#videoTogetherLiteLoading")).toHaveCount(0);
 }
 
 export async function expectVideoState(
@@ -97,9 +99,12 @@ export async function getFixtureVideo(page: Page): Promise<FixtureVideoState> {
   });
 }
 
-export async function pickFirstVideo(page: Page): Promise<void> {
-  await pickVideoButton(page).click();
-  await page.getByText("Use this video").click();
+export async function pickFirstVideo(controlPage: Page, targetPage = controlPage): Promise<void> {
+  await pickVideoButton(controlPage).click();
+  await targetPage.getByText("Use this video").click();
+  if (targetPage !== controlPage) {
+    await controlPage.bringToFront();
+  }
 }
 
 export async function setFixtureVideo(
