@@ -12,11 +12,15 @@ export interface PlaybackSnapshot {
   playbackRate: number;
 }
 
+export interface PlaybackSeekOptions {
+  allowPageNavigation?: boolean;
+}
+
 export interface PlaybackAdapter {
   readonly kind: PlaybackAdapterKind;
   pause: () => void;
   play: () => Promise<void>;
-  seek: (targetTime: number) => void;
+  seek: (targetTime: number, options?: PlaybackSeekOptions) => boolean;
   setPlaybackRate: (playbackRate: number) => void;
   snapshot: () => PlaybackSnapshot;
 }

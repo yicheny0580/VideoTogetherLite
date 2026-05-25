@@ -19,14 +19,17 @@ import {
 test("popup enable switch controls fixture injection", async ({ openFixture, openPopup }) => {
   const popup = await openPopup();
   const enabledSwitch = popup.locator("#videoTogetherLiteExtensionSwitch");
+  const switchControl = popup.locator("label").filter({ has: enabledSwitch });
   await expect(enabledSwitch).toBeChecked();
 
-  await enabledSwitch.setChecked(false, { force: true });
+  await switchControl.click();
+  await expect(enabledSwitch).not.toBeChecked();
   await expect(popup.getByText("Disabled")).toBeVisible();
   const disabledPage = await openFixture("/host", { waitForPanel: false });
   await expectNoPanel(disabledPage);
 
-  await enabledSwitch.setChecked(true, { force: true });
+  await switchControl.click();
+  await expect(enabledSwitch).toBeChecked();
   await expect(popup.getByText("Enabled")).toBeVisible();
   const enabledPage = await openFixture("/host");
   await expect(enabledPage.locator("#videoTogetherLiteFlyPanel")).toBeVisible();

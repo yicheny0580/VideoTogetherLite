@@ -87,6 +87,15 @@ export class VideoRegistry {
     return this.toSummary(video);
   }
 
+  focusPlaybackTargetVideo(): FocusableVideo | null {
+    const video = this.getPlaybackTargetVideoDom();
+    if (video === null) {
+      return null;
+    }
+    this.focusedVideoId = this.ensureVideoId(video);
+    return this.toSummary(video);
+  }
+
   getFocusedVideoId(): string {
     return this.focusedVideoId;
   }

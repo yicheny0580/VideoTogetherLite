@@ -1,6 +1,5 @@
 import {
   createTimeSyncState,
-  linkWithoutState,
   updateTimeSync,
   type Language, type Room, type RoomSessionResponse
 } from "@videotogetherlite/shared";
@@ -11,7 +10,7 @@ import { PageStateStore } from "../infrastructure/pageStateStore";
 import { VideoTogetherLiteWsClient } from "../infrastructure/wsClient";
 import { VideoRegistry } from "../infrastructure/videoRegistry";
 import { getServiceHost, stateMaxAgeSeconds } from "./config";
-import { getDisplayTimeText } from "./controllerUtils";
+import { getDisplayTimeText, getPlaybackIdentityUrl } from "./controllerUtils";
 import { followParticipantVideo, normalizeNickname, startVideoPickerFlow, syncFollowTargetVideo, toParticipantPanelState, updateParticipantRoom } from "./controllerState";
 import { getFullscreenChipLabels, removeFullscreenChip, updateFullscreenChip } from "./fullscreenChip";
 import { initialPanelState, type PanelState, type StatusTone } from "./panelState";
@@ -289,18 +288,21 @@ export class VideoTogetherLiteController {
     this.setPanelState({
       followUserId: state.followUserId,
       inRoom: true,
-      roomCode: state.roomCode
+      roomCode: state.roomCode,
+      sharing: state.sharing === true
     });
     void this.scheduledTask();
   }
 
   private refreshFocusedVideo(): void {
-    this.setPanelState({ focusedVideo: this.videoRegistry.getFocusedVideoSummary() });
+    const focusedVideo = this.videoRegistry.getFocusedVideoSummary()
+      ?? (this.panelState.sharing ? this.videoRegistry.focusPlaybackTargetVideo() : null);
+    this.setPanelState({ focusedVideo });
   }
 
   private saveState(followUserId = this.panelState.followUserId): void {
     if (window.self === window.top && this.sessionToken !== "" && this.panelState.roomCode !== "") {
-      this.stateStore.save(this.panelState.roomCode, this.sessionToken, linkWithoutState(window.location), followUserId);
+      this.stateStore.save(this.panelState.roomCode, this.sessionToken, getPlaybackIdentityUrl(window.location), followUserId, this.panelState.sharing);
     }
   }
 
@@ -311,6 +313,9 @@ export class VideoTogetherLiteController {
     this.lastScheduledTaskTs = Date.now() / 1000;
     this.refreshFocusedVideo();
     if (!this.panelState.inRoom || this.sessionToken === "") {
+      return;
+    }
+    if (this.panelState.sharing && this.panelState.focusedVideo === null) {
       return;
     }
 

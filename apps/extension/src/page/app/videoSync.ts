@@ -12,12 +12,21 @@ const pendingSeekRecords = new WeakMap<HTMLVideoElement, PendingSeekRecord>();
 
 function shouldSkipSeek(
   video: HTMLVideoElement,
+  adapter: PlaybackAdapter,
   snapshot: ReturnType<PlaybackAdapter["snapshot"]>,
   targetTime: number
 ): boolean {
   const record = pendingSeekRecords.get(video);
   if (record === undefined) {
     return false;
+  }
+
+  if (adapter.kind === "youtube") {
+    if (Math.abs(snapshot.currentTime - record.targetTime) <= 0.5) {
+      pendingSeekRecords.delete(video);
+      return false;
+    }
+    return true;
   }
 
   if (!snapshot.isLoading) {
@@ -45,7 +54,7 @@ async function syncPausedState(
   manualPlayMessage: string
 ): Promise<void> {
   const snapshot = adapter.snapshot();
-  if (snapshot.hasPlaybackError || snapshot.isLoading) {
+  if (snapshot.hasPlaybackError) {
     return;
   }
   if (snapshot.paused === paused) {
@@ -53,6 +62,9 @@ async function syncPausedState(
   }
   if (paused) {
     adapter.pause();
+    return;
+  }
+  if (snapshot.isLoading) {
     return;
   }
 
@@ -75,7 +87,10 @@ export async function syncVideoToRoom(
 ): Promise<void> {
   const adapter = playbackAdapter;
   const initialSnapshot = adapter.snapshot();
-  if (initialSnapshot.hasPlaybackError || (sharedVideo.isLoading && !sharedVideo.paused)) {
+  if (
+    initialSnapshot.hasPlaybackError
+    || (sharedVideo.isLoading && !sharedVideo.paused && adapter.kind !== "youtube")
+  ) {
     return;
   }
   if (!sharedVideo.isLoading) {
@@ -85,14 +100,16 @@ export async function syncVideoToRoom(
   const realCurrent = calculateRealCurrent(sharedVideo, localTimestamp);
   const snapshot = adapter.snapshot();
   if (!sharedVideo.paused && Math.abs(snapshot.currentTime - realCurrent) > 1) {
-    if (!shouldSkipSeek(video, snapshot, realCurrent)) {
-      adapter.seek(realCurrent);
-      rememberSeek(video, realCurrent);
+    if (!shouldSkipSeek(video, adapter, snapshot, realCurrent)) {
+      if (adapter.seek(realCurrent, { allowPageNavigation: true })) {
+        rememberSeek(video, realCurrent);
+      }
     }
   } else if (sharedVideo.paused && Math.abs(snapshot.currentTime - sharedVideo.currentTime) > 0.1) {
-    if (!shouldSkipSeek(video, snapshot, sharedVideo.currentTime)) {
-      adapter.seek(sharedVideo.currentTime);
-      rememberSeek(video, sharedVideo.currentTime);
+    if (!shouldSkipSeek(video, adapter, snapshot, sharedVideo.currentTime)) {
+      if (adapter.seek(sharedVideo.currentTime, { allowPageNavigation: true })) {
+        rememberSeek(video, sharedVideo.currentTime);
+      }
     }
   }
 

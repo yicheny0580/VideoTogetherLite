@@ -11,9 +11,10 @@ import {
   statusText
 } from "./helpers/panel";
 
-const youtubeTestUrl = "https://www.youtube.com/watch?v=Nz_tzgbB4Ws";
-const targetTime = 42;
-const longVideoTargetTime = 625;
+const youtubeTestUrl = "https://www.youtube.com/watch?v=aqz-KE-bpKQ";
+const targetTime = 5;
+const longVideoTargetTime = 218;
+const activeUnbufferedTargetTime = 500;
 
 interface YouTubeState {
   currentTime: number;
@@ -69,12 +70,20 @@ async function getYouTubeState(page: Page): Promise<YouTubeState> {
       .find((element) => element instanceof HTMLElement && element.offsetParent !== null);
 
     return {
-      currentTime: finiteNumber(video.currentTime) ?? finiteNumber(player?.getCurrentTime?.()) ?? 0,
-      duration: finiteNumber(video.duration) ?? finiteNumber(player?.getDuration?.()) ?? 0,
+      currentTime: finiteNumber(player?.getCurrentTime?.()) ?? finiteNumber(video.currentTime) ?? 0,
+      duration: finiteNumber(player?.getDuration?.()) ?? finiteNumber(video.duration) ?? 0,
       errorText: visibleError?.textContent?.trim() ?? "",
       paused: video.paused || (Number.isFinite(playerState) ? playerState !== 1 && playerState !== 3 : false)
     };
   });
+}
+
+async function tryGetYouTubeState(page: Page): Promise<YouTubeState | null> {
+  try {
+    return await getYouTubeState(page);
+  } catch {
+    return null;
+  }
 }
 
 async function setYouTubePausedTime(page: Page, seconds: number): Promise<void> {
@@ -83,17 +92,76 @@ async function setYouTubePausedTime(page: Page, seconds: number): Promise<void> 
     if (!(video instanceof HTMLVideoElement)) {
       throw new Error("YouTube video element is unavailable.");
     }
+    const player = video.closest(".html5-video-player") as {
+      pauseVideo?: () => void;
+    } | null;
 
+    player?.pauseVideo?.();
     video.pause();
     video.currentTime = targetSeconds;
   }, seconds);
 
-  await expect.poll(async () => Math.abs((await getYouTubeState(page)).currentTime - seconds) <= 5, {
+  await expect.poll(async () => {
+    const state = await tryGetYouTubeState(page);
+    return state !== null && Math.abs(state.currentTime - seconds) <= 5;
+  }, {
     timeout: 30_000
   }).toBe(true);
-  await expect.poll(async () => (await getYouTubeState(page)).paused, {
+  await page.evaluate(() => {
+    const video = document.querySelector("video");
+    const player = video?.closest(".html5-video-player") as {
+      pauseVideo?: () => void;
+    } | null;
+    player?.pauseVideo?.();
+    video?.pause();
+  }).catch(() => undefined);
+}
+
+async function waitForYouTubeTime(
+  page: Page,
+  seconds: number,
+  timeout = 30_000,
+  tolerance = 2
+): Promise<void> {
+  await expect.poll(async () => {
+    const state = await tryGetYouTubeState(page);
+    return state !== null && Math.abs(state.currentTime - seconds) <= tolerance;
+  }, { timeout }).toBe(true);
+}
+
+async function seekYouTubePlayer(
+  page: Page,
+  seconds: number,
+  allowSeekAhead: boolean
+): Promise<void> {
+  await page.evaluate(({ allowSeekAhead: seekAhead, targetSeconds }) => {
+    const video = document.querySelector("video");
+    if (!(video instanceof HTMLVideoElement)) {
+      throw new Error("YouTube video element is unavailable.");
+    }
+    const player = video.closest(".html5-video-player") as {
+      pauseVideo?: () => void;
+      seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
+    } | null;
+    if (typeof player?.seekTo !== "function") {
+      throw new Error("YouTube player seek API is unavailable.");
+    }
+
+    player.pauseVideo?.();
+    video.pause();
+    player.seekTo(targetSeconds, seekAhead);
+  }, { allowSeekAhead, targetSeconds: seconds });
+}
+
+async function expectUrlTimestamp(page: Page, seconds: number): Promise<void> {
+  await expect.poll(async () => new URL(page.url()).searchParams.get("t"), {
     timeout: 30_000
-  }).toBe(true);
+  }).toBe(`${seconds}s`);
+}
+
+async function expectNoUrlTimestampAfter(page: Page, timeout = 6_000): Promise<void> {
+  await page.waitForTimeout(timeout);
+  expect(new URL(page.url()).searchParams.get("t")).toBeNull();
 }
 
 async function expectNoYouTubePlaybackError(page: Page): Promise<void> {
@@ -125,12 +193,20 @@ async function getYouTubeSeekCount(page: Page): Promise<number> {
   return page.evaluate(() => window.__videoTogetherLiteYouTubeSeekCount ?? 0);
 }
 
+async function resetYouTubeSeekCount(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.__videoTogetherLiteYouTubeSeekCount = 0;
+  });
+}
+
 async function syncPausedYouTubeVideo({
+  expectedBobSeekCount,
   openExternal,
   openIsolatedExternal,
   targetSeconds,
   url
 }: {
+  expectedBobSeekCount: number;
   openExternal: (url: string) => Promise<Page>;
   openIsolatedExternal: (url: string) => Promise<Page>;
   targetSeconds: number;
@@ -147,6 +223,7 @@ async function syncPausedYouTubeVideo({
     timeout: 30_000
   });
   await setYouTubePausedTime(alice, targetSeconds);
+  await resetYouTubeSeekCount(alice);
   await expect(statusText(alice)).toContainText("Sync");
   await expectNoYouTubePlaybackError(alice);
   const inviteCode = await inviteCodeText(alice).innerText();
@@ -161,16 +238,11 @@ async function syncPausedYouTubeVideo({
   await expect(bob.locator("#videoTogetherLiteRoomCodeText")).toBeVisible();
   await bob.getByRole("button", { name: "Follow" }).click();
 
-  await expect.poll(async () => Math.abs((await getYouTubeState(bob)).currentTime - targetSeconds) <= 5, {
-    timeout: 30_000
-  }).toBe(true);
-  await expect.poll(async () => (await getYouTubeState(bob)).paused, {
-    timeout: 30_000
-  }).toBe(true);
+  await waitForYouTubeTime(bob, targetSeconds, 30_000, 5);
   await expectNoYouTubePlaybackError(bob);
   await expectNoYouTubePlaybackError(alice);
   expect(await getYouTubeSeekCount(alice)).toBe(0);
-  expect(await getYouTubeSeekCount(bob)).toBe(0);
+  expect(await getYouTubeSeekCount(bob)).toBe(expectedBobSeekCount);
 
   return { alice, bob };
 }
@@ -182,6 +254,7 @@ test("syncs a real YouTube video through the YouTube adapter", async ({
   testInfo.setTimeout(120_000);
 
   await syncPausedYouTubeVideo({
+    expectedBobSeekCount: 1,
     openExternal,
     openIsolatedExternal,
     targetSeconds: targetTime,
@@ -196,6 +269,7 @@ test("does not crash or spam seeks after a long YouTube seek", async ({
   testInfo.setTimeout(150_000);
 
   const { bob } = await syncPausedYouTubeVideo({
+    expectedBobSeekCount: 0,
     openExternal,
     openIsolatedExternal,
     targetSeconds: longVideoTargetTime,
@@ -204,5 +278,42 @@ test("does not crash or spam seeks after a long YouTube seek", async ({
 
   await bob.waitForTimeout(4_000);
   expect(await getYouTubeSeekCount(bob)).toBe(0);
+  await expectNoYouTubePlaybackError(bob);
+});
+
+test("keeps a followed YouTube room synced after active seeks", async ({
+  openExternal,
+  openIsolatedExternal
+}, testInfo) => {
+  testInfo.setTimeout(180_000);
+
+  const { alice, bob } = await syncPausedYouTubeVideo({
+    expectedBobSeekCount: 1,
+    openExternal,
+    openIsolatedExternal,
+    targetSeconds: targetTime,
+    url: youtubeTestUrl
+  });
+
+  await seekYouTubePlayer(alice, 15, true);
+  await waitForYouTubeTime(alice, 15);
+  await waitForYouTubeTime(bob, 15);
+  await expectNoYouTubePlaybackError(alice);
+  await expectNoYouTubePlaybackError(bob);
+
+  expect(new URL(alice.url()).searchParams.get("t")).toBeNull();
+  await seekYouTubePlayer(alice, activeUnbufferedTargetTime, true);
+  await waitForYouTubeTime(alice, activeUnbufferedTargetTime, 60_000);
+  await expectNoUrlTimestampAfter(alice);
+  await expectUrlTimestamp(bob, activeUnbufferedTargetTime);
+  await waitForYouTubeTime(bob, activeUnbufferedTargetTime, 60_000);
+  await expect(alice.locator(".vtl-participant-video").filter({ hasText: "Alice" })).toBeVisible({
+    timeout: 30_000
+  });
+  await expectNoYouTubePlaybackError(bob);
+
+  await seekYouTubePlayer(alice, activeUnbufferedTargetTime + 5, false);
+  await waitForYouTubeTime(bob, activeUnbufferedTargetTime + 5, 45_000);
+  await expectNoYouTubePlaybackError(alice);
   await expectNoYouTubePlaybackError(bob);
 });

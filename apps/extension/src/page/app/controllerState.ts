@@ -1,7 +1,6 @@
 import {
   getLocalTimestamp,
   linkWithRoomState,
-  linkWithoutState,
   type Room,
   type RoomParticipant,
   type SharedVideoState,
@@ -12,7 +11,7 @@ import type { VideoTogetherLiteApiClient } from "../infrastructure/httpClient";
 import { createPlaybackAdapter, type PlaybackAdapter } from "../infrastructure/mediaPlayback";
 import type { VideoRegistry } from "../infrastructure/videoRegistry";
 import type { VideoTogetherLiteWsClient } from "../infrastructure/wsClient";
-import { getHostName } from "./controllerUtils";
+import { getHostName, getPlaybackIdentityUrl } from "./controllerUtils";
 import type { PanelState, ParticipantPanelState, StatusTone } from "./panelState";
 import { syncVideoToRoom } from "./videoSync";
 
@@ -31,9 +30,6 @@ export function buildFocusedVideoState(
   }
   const adapter = (options.createAdapter ?? createPlaybackAdapter)(video);
   const snapshot = adapter.snapshot();
-  if (snapshot.hasPlaybackError) {
-    return undefined;
-  }
 
   return {
     currentTime: snapshot.currentTime,
@@ -44,7 +40,7 @@ export function buildFocusedVideoState(
     paused: snapshot.paused,
     playbackRate: snapshot.playbackRate,
     title: videoRegistry.getFocusedVideoSummary()?.title || document.title || "Untitled video",
-    url: linkWithoutState(window.location)
+    url: getPlaybackIdentityUrl(window.location)
   };
 }
 
@@ -80,7 +76,7 @@ export function followParticipantVideo({
   }
 
   saveState(followUserId);
-  if (video.url !== "" && video.url !== linkWithoutState(window.location)) {
+  if (video.url !== "" && getPlaybackIdentityUrl(video.url) !== getPlaybackIdentityUrl(window.location)) {
     window.location.href = linkWithRoomState(video.url, roomCode, sessionToken, followUserId).toString();
     return;
   }
@@ -145,8 +141,8 @@ export async function syncFollowTargetVideo({
     return;
   }
 
-  const currentUrl = linkWithoutState(window.location);
-  if (sharedVideo.url !== "" && sharedVideo.url !== currentUrl) {
+  const currentUrl = getPlaybackIdentityUrl(window.location);
+  if (sharedVideo.url !== "" && getPlaybackIdentityUrl(sharedVideo.url) !== currentUrl) {
     saveState(participant.userId);
     window.location.href = linkWithRoomState(sharedVideo.url, room.roomCode, sessionToken, participant.userId).toString();
     return;

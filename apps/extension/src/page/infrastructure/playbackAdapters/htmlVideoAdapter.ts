@@ -45,8 +45,10 @@ export function createHtmlVideoAdapter(video: HTMLVideoElement): PlaybackAdapter
       const safeTarget = clampSeekTime(snapshotVideo(video).duration, targetTime);
       try {
         video.currentTime = safeTarget;
+        return true;
       } catch {
         // Some host players reject seeks before metadata is ready.
+        return false;
       }
     },
     setPlaybackRate: (playbackRate) => {

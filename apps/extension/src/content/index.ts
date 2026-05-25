@@ -10,6 +10,7 @@ interface StoredRoomState {
   followUserId: string;
   roomCode: string;
   sessionToken: string;
+  sharing?: boolean;
   timestamp: number;
   url: string;
 }
@@ -138,6 +139,7 @@ function isStoredRoomState(candidate: unknown): candidate is StoredRoomState {
   return typeof state.followUserId === "string"
     && typeof state.roomCode === "string"
     && typeof state.sessionToken === "string"
+    && (state.sharing === undefined || typeof state.sharing === "boolean")
     && typeof state.timestamp === "number"
     && typeof state.url === "string";
 }

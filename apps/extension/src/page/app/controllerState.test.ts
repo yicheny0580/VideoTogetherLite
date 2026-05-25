@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createTimeSyncState, type Room, type SharedVideoState } from "@videotogetherlite/shared";
 
@@ -52,7 +52,7 @@ function playbackAdapter(overrides: Partial<ReturnType<PlaybackAdapter["snapshot
     kind: "youtube",
     pause: () => undefined,
     play: async () => undefined,
-    seek: () => undefined,
+    seek: () => true,
     setPlaybackRate: () => undefined,
     snapshot: () => ({
       currentTime: 8,
@@ -107,12 +107,88 @@ describe("buildFocusedVideoState", () => {
     });
   });
 
-  it("does not publish a YouTube playback error", () => {
+  it("does not mutate a focused YouTube video while publishing buffering state", () => {
+    const seek = vi.fn(() => true);
+    const pause = vi.fn();
+    const play = vi.fn(async () => undefined);
+    const setPlaybackRate = vi.fn();
+    buildFocusedVideoState(
+      registryFor(videoWithState()),
+      createTimeSyncState(),
+      {
+        createAdapter: () => ({
+          ...playbackAdapter({
+            currentTime: 218,
+            isLoading: true,
+            isStable: false,
+            phase: "buffering"
+          }),
+          pause,
+          play,
+          seek,
+          setPlaybackRate
+        })
+      }
+    );
+
+    expect(seek).not.toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
+    expect(play).not.toHaveBeenCalled();
+    expect(setPlaybackRate).not.toHaveBeenCalled();
+  });
+
+  it("keeps publishing a focused YouTube playback error without mutating it", () => {
+    const seek = vi.fn(() => true);
+    const state = buildFocusedVideoState(
+      registryFor(videoWithState()),
+      createTimeSyncState(),
+      {
+        createAdapter: () => ({
+          ...playbackAdapter({
+            currentTime: 218,
+            hasPlaybackError: true,
+            isLoading: true,
+            isStable: false,
+            phase: "unknown"
+          }),
+          seek
+        })
+      }
+    );
+
+    expect(seek).not.toHaveBeenCalled();
+    expect(state?.currentTime).toBe(218);
+    expect(state?.isLoading).toBe(true);
+  });
+
+  it("does not mutate a focused loading YouTube video outside buffering phase", () => {
+    const seek = vi.fn(() => true);
+    buildFocusedVideoState(
+      registryFor(videoWithState()),
+      createTimeSyncState(),
+      {
+        createAdapter: () => ({
+          ...playbackAdapter({
+            currentTime: 218,
+            isLoading: true,
+            isStable: false,
+            phase: "paused"
+          }),
+          seek
+        })
+      }
+    );
+
+    expect(seek).not.toHaveBeenCalled();
+  });
+
+  it("publishes a YouTube playback error as loading state", () => {
     const state = buildFocusedVideoState(
       registryFor(videoWithState()),
       createTimeSyncState(),
       {
         createAdapter: () => playbackAdapter({
+          currentTime: 0,
           hasPlaybackError: true,
           isLoading: true,
           isStable: false
@@ -120,7 +196,10 @@ describe("buildFocusedVideoState", () => {
       }
     );
 
-    expect(state).toBeUndefined();
+    expect(state).toMatchObject({
+      currentTime: 0,
+      isLoading: true
+    });
   });
 
   it("follows with an automatic playback target instead of a picked video", async () => {

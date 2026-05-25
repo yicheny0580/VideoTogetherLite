@@ -34,7 +34,7 @@ const extensionLaunchArgs = [
 ];
 
 export const test = base.extend<ExtensionFixtures>({
-  extensionContext: async ({ browserName: _browserName }, runFixture) => {
+  extensionContext: async ({ browserName: _browserName, headless }, runFixture) => {
     await access(extensionManifest);
     const userDataDir = await mkdtemp(join(tmpdir(), "videotogetherlite-e2e-"));
     let context: BrowserContext | undefined;
@@ -42,7 +42,7 @@ export const test = base.extend<ExtensionFixtures>({
       context = await chromium.launchPersistentContext(userDataDir, {
         args: extensionLaunchArgs,
         channel: "chromium",
-        headless: true
+        headless
       });
       await runFixture(context);
     } finally {
@@ -92,7 +92,7 @@ export const test = base.extend<ExtensionFixtures>({
     });
   },
 
-  openIsolatedExternal: async ({ browserName: _browserName }, runFixture) => {
+  openIsolatedExternal: async ({ browserName: _browserName, headless }, runFixture) => {
     const opened: Array<{ context: BrowserContext; userDataDir: string }> = [];
     try {
       await runFixture(async (url, options = {}) => {
@@ -100,7 +100,7 @@ export const test = base.extend<ExtensionFixtures>({
         const context = await chromium.launchPersistentContext(userDataDir, {
           args: extensionLaunchArgs,
           channel: "chromium",
-          headless: true
+          headless
         });
         opened.push({ context, userDataDir });
         const page = await context.newPage();
@@ -118,7 +118,7 @@ export const test = base.extend<ExtensionFixtures>({
     }
   },
 
-  openIsolatedFixture: async ({ fixtureServer }, runFixture) => {
+  openIsolatedFixture: async ({ fixtureServer, headless }, runFixture) => {
     const opened: Array<{ context: BrowserContext; userDataDir: string }> = [];
     try {
       await runFixture(async (pathname = "/host", options = {}) => {
@@ -126,7 +126,7 @@ export const test = base.extend<ExtensionFixtures>({
         const context = await chromium.launchPersistentContext(userDataDir, {
           args: extensionLaunchArgs,
           channel: "chromium",
-          headless: true
+          headless
         });
         opened.push({ context, userDataDir });
         const page = await context.newPage();

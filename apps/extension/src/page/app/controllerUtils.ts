@@ -1,3 +1,7 @@
+import { linkWithoutState } from "@videotogetherlite/shared";
+
+import { isYouTubeOwnedHost } from "../infrastructure/playbackAdapters/youtubeAdapter";
+
 export function getDisplayTimeText(): string {
   const date = new Date();
   return `${date.getHours()}:${date.getMinutes()}:${date.getSeconds()}`;
@@ -20,6 +24,16 @@ export function getProgressText(currentTime: number, duration: number): string {
     return current;
   }
   return `${current} / ${formatSeconds(duration)}`;
+}
+
+export function getPlaybackIdentityUrl(link: string | URL | Location): string {
+  const url = new URL(linkWithoutState(link));
+  if (isYouTubeOwnedHost(url.hostname)) {
+    url.searchParams.delete("t");
+    url.searchParams.delete("time_continue");
+    url.searchParams.delete("start");
+  }
+  return url.toString();
 }
 
 function formatSeconds(value: number): string {

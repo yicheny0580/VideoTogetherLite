@@ -51,7 +51,7 @@ export class PageStateStore {
     return persistedState;
   }
 
-  save(roomCode: string, sessionToken: string, link: string, followUserId = ""): void {
+  save(roomCode: string, sessionToken: string, link: string, followUserId = "", sharing = false): void {
     if (roomCode === "" || sessionToken === "") {
       return;
     }
@@ -60,6 +60,7 @@ export class PageStateStore {
       followUserId,
       roomCode,
       sessionToken,
+      sharing,
       timestamp: Date.now() / 1000,
       url: link
     };
@@ -87,6 +88,7 @@ export class PageStateStore {
       followUserId: getter("VideoTogetherLiteFollowUserId") ?? "",
       roomCode,
       sessionToken,
+      sharing: getter("VideoTogetherLiteSharing") === "true",
       timestamp,
       url: getter("VideoTogetherLiteUrl") || fallbackUrl
     };
@@ -129,6 +131,7 @@ export class PageStateStore {
     sessionStorage.setItem("VideoTogetherLiteUrl", state.url);
     sessionStorage.setItem("VideoTogetherLiteRoomCode", state.roomCode);
     sessionStorage.setItem("VideoTogetherLiteSessionToken", state.sessionToken);
+    sessionStorage.setItem("VideoTogetherLiteSharing", String(state.sharing === true));
     sessionStorage.setItem("VideoTogetherLiteTimestamp", String(state.timestamp));
     if (state.followUserId === "") {
       sessionStorage.removeItem("VideoTogetherLiteFollowUserId");
@@ -146,6 +149,7 @@ function isRoomState(candidate: unknown): candidate is RoomState {
   return typeof state.followUserId === "string"
     && typeof state.roomCode === "string"
     && typeof state.sessionToken === "string"
+    && (state.sharing === undefined || typeof state.sharing === "boolean")
     && typeof state.timestamp === "number"
     && typeof state.url === "string";
 }

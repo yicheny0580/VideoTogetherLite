@@ -3,6 +3,7 @@ export const stateKeys = [
   "VideoTogetherLiteRoomCode",
   "VideoTogetherLiteSessionToken",
   "VideoTogetherLiteFollowUserId",
+  "VideoTogetherLiteSharing",
   "VideoTogetherLiteTimestamp"
 ] as const;
 
@@ -10,6 +11,7 @@ export interface RoomState {
   followUserId: string;
   roomCode: string;
   sessionToken: string;
+  sharing?: boolean;
   timestamp: number;
   url: string;
 }

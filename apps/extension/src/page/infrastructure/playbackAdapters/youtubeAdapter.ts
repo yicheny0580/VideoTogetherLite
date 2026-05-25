@@ -6,7 +6,12 @@ interface YouTubePlayerElement extends HTMLElement {
   getDuration?: () => number;
   getPlaybackRate?: () => number;
   getPlayerState?: () => number;
+  getVideoLoadedFraction?: () => number;
+  pauseVideo?: () => void;
+  seekTo?: (seconds: number, allowSeekAhead: boolean) => void;
 }
+
+type NavigateToUrl = (url: string) => void;
 
 export function isYouTubeOwnedHost(hostname: string): boolean {
   const normalized = hostname.toLowerCase();
@@ -51,12 +56,13 @@ function isPaused(player: YouTubePlayerElement, video: HTMLVideoElement): boolea
   return false;
 }
 
-function isVideoLoaded(video: HTMLVideoElement): boolean {
+function isVideoLoaded(video: HTMLVideoElement, phase: PlaybackPhase): boolean {
   try {
-    if (Number.isNaN(Number(video.readyState))) {
+    const readyState = Number(video.readyState);
+    if (Number.isNaN(readyState)) {
       return true;
     }
-    return video.readyState >= 3;
+    return readyState >= 3 || (phase === "paused" && readyState >= 2);
   } catch {
     return true;
   }
@@ -91,17 +97,77 @@ function hasVisiblePlaybackError(player: YouTubePlayerElement): boolean {
   return style.display !== "none" && style.visibility !== "hidden";
 }
 
+function isTimeBuffered(
+  player: YouTubePlayerElement,
+  video: HTMLVideoElement,
+  duration: number,
+  targetTime: number
+): boolean {
+  try {
+    for (let index = 0; index < video.buffered.length; index += 1) {
+      if (targetTime >= video.buffered.start(index) && targetTime <= video.buffered.end(index)) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+
+  const loadedFraction = readFiniteNumber(() => player.getVideoLoadedFraction?.());
+  return loadedFraction !== null
+    && duration > 0
+    && targetTime <= duration * loadedFraction;
+}
+
+function parseYouTubeUrlTime(value: string | null): number | null {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+  const numericValue = Number.parseFloat(value);
+  if (Number.isFinite(numericValue)) {
+    return numericValue;
+  }
+
+  const match = /^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?$/.exec(value.trim());
+  if (match === null) {
+    return null;
+  }
+
+  const hours = Number.parseInt(match[1] ?? "0", 10);
+  const minutes = Number.parseInt(match[2] ?? "0", 10);
+  const seconds = Number.parseInt(match[3] ?? "0", 10);
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+function seekWithTimestampNavigation(targetTime: number, navigateToUrl: NavigateToUrl): boolean {
+  const targetSeconds = Math.max(0, Math.floor(targetTime));
+  const url = new URL(window.location.href);
+  const currentUrlTime = parseYouTubeUrlTime(url.searchParams.get("t"))
+    ?? parseYouTubeUrlTime(url.searchParams.get("time_continue"))
+    ?? parseYouTubeUrlTime(url.searchParams.get("start"));
+
+  if (currentUrlTime !== null && Math.abs(currentUrlTime - targetSeconds) <= 1) {
+    return true;
+  }
+
+  url.searchParams.delete("time_continue");
+  url.searchParams.delete("start");
+  url.searchParams.set("t", `${targetSeconds}s`);
+  navigateToUrl(url.toString());
+  return true;
+}
+
 function snapshotYouTubePlayer(
   player: YouTubePlayerElement,
   video: HTMLVideoElement
 ): PlaybackSnapshot {
-  const currentTime = readFiniteNumber(() => video.currentTime)
-    ?? readFiniteNumber(() => player.getCurrentTime?.());
-  const duration = readFiniteNumber(() => video.duration)
-    ?? readFiniteNumber(() => player.getDuration?.());
+  const currentTime = readFiniteNumber(() => player.getCurrentTime?.())
+    ?? readFiniteNumber(() => video.currentTime);
+  const duration = readFiniteNumber(() => player.getDuration?.())
+    ?? readFiniteNumber(() => video.duration);
   const phase = phaseForPlayerState(getPlayerState(player));
   const hasPlaybackError = hasVisiblePlaybackError(player);
-  const isLoading = hasPlaybackError || !isVideoLoaded(video);
+  const isLoading = hasPlaybackError || !isVideoLoaded(video, phase);
   const isStable = !hasPlaybackError
     && !isLoading
     && currentTime !== null
@@ -124,7 +190,8 @@ function snapshotYouTubePlayer(
 
 export function createYouTubeAdapter(
   video: HTMLVideoElement,
-  hostname: string
+  hostname: string,
+  navigateToUrl: NavigateToUrl = (url) => { window.location.href = url; }
 ): PlaybackAdapter | null {
   const player = getYouTubePlayer(video, hostname);
   if (player === null) {
@@ -135,6 +202,10 @@ export function createYouTubeAdapter(
     kind: "youtube",
     pause: () => {
       try {
+        if (typeof player.pauseVideo === "function") {
+          player.pauseVideo();
+          return;
+        }
         video.pause();
       } catch {
         // Ignore host-specific pause failures; future updates can retry.
@@ -143,12 +214,29 @@ export function createYouTubeAdapter(
     play: async () => {
       await video.play();
     },
-    seek: (targetTime) => {
-      const safeTarget = clampSeekTime(snapshotYouTubePlayer(player, video).duration, targetTime);
+    seek: (targetTime, options = {}) => {
+      const snapshot = snapshotYouTubePlayer(player, video);
+      const safeTarget = clampSeekTime(snapshot.duration, targetTime);
+      if (!isTimeBuffered(player, video, snapshot.duration, safeTarget)) {
+        if (options.allowPageNavigation === true) {
+          return seekWithTimestampNavigation(safeTarget, navigateToUrl);
+        }
+        return false;
+      }
+      if (typeof player.seekTo === "function") {
+        try {
+          player.seekTo(safeTarget, false);
+          return true;
+        } catch {
+          // Fall back to the native element only when it is already buffered.
+        }
+      }
       try {
         video.currentTime = safeTarget;
+        return true;
       } catch {
         // Some host players reject seeks before metadata is ready.
+        return false;
       }
     },
     setPlaybackRate: (playbackRate) => {
