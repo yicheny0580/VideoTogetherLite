@@ -6,7 +6,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch --mode development",
-    "test:e2e": "playwright test",
+    "test:e2e": "vite build --mode e2e && playwright test",
     "test": "vitest run src",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

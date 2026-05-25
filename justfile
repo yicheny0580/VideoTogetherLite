@@ -39,6 +39,9 @@ typecheck:
 test:
     {{pnpm}} test
 
+test-e2e:
+    {{pnpm}} test:e2e
+
 test-server:
     go test ./apps/server/...
 

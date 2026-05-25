@@ -106,6 +106,7 @@ export class VideoTogetherLiteController {
 
     this.tempUser = generateTempUserId();
     this.sessionToken = "";
+    this.url = this.getMainPageUrl();
     this.enterRoom(name, password, Role.Member);
   }
 
@@ -200,12 +201,7 @@ export class VideoTogetherLiteController {
     this.applyRoomInfo(room);
     const nextUrl = room.url;
     if (nextUrl && nextUrl !== this.url) {
-      window.location.href = linkWithMemberState(
-        nextUrl,
-        this.panelState.roomName,
-        this.sessionToken,
-        Role.Member
-      ).toString();
+      window.location.href = linkWithMemberState(nextUrl, this.panelState.roomName, this.sessionToken, Role.Member).toString();
       return;
     }
 
@@ -234,12 +230,7 @@ export class VideoTogetherLiteController {
 
     this.sessionToken = state.sessionToken;
     this.url = state.url;
-    this.setPanelState({
-      inRoom: true,
-      password: "",
-      role: state.role,
-      roomName: state.roomName
-    });
+    this.setPanelState({ inRoom: true, password: "", role: state.role, roomName: state.roomName });
     void this.scheduledTask();
   }
 
@@ -268,18 +259,26 @@ export class VideoTogetherLiteController {
         await this.memberTask();
       }
     } catch (error) {
-      this.updateStatus(error instanceof Error ? error.message : String(error), "danger");
+      this.handleScheduledTaskError(error);
     }
+  }
+
+  private handleScheduledTaskError(error: unknown): void {
+    const statusText = error instanceof Error ? error.message : String(error);
+    if (this.sessionToken !== "") {
+      this.updateStatus(statusText, "danger");
+      return;
+    }
+
+    this.wsClient.disconnect();
+    this.waitForLoading = false;
+    this.playAfterLoading = false;
+    this.setPanelState({ inRoom: false, password: "", role: Role.Null, statusText, statusTone: "danger" });
   }
 
   private saveState(): void {
     if (window.self === window.top && this.sessionToken !== "") {
-      this.stateStore.save(
-        this.panelState.roomName,
-        this.sessionToken,
-        this.panelState.role,
-        this.url
-      );
+      this.stateStore.save(this.panelState.roomName, this.sessionToken, this.panelState.role, this.url);
     }
   }
 
@@ -369,12 +368,7 @@ export class VideoTogetherLiteController {
   }
 
   private enterRoom(name: string, password: string, role: Role): void {
-    this.setPanelState({
-      inRoom: true,
-      password,
-      role,
-      roomName: name
-    });
+    this.setPanelState({ inRoom: true, password, role, roomName: name });
     void this.scheduledTask();
   }
 

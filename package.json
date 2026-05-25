@@ -13,6 +13,7 @@
     "check:lines": "node scripts/check-file-lines.mjs",
     "lint": "eslint . && pnpm check:lines",
     "test": "pnpm -r --if-present test",
+    "test:e2e": "pnpm --filter @videotogetherlite/extension test:e2e",
     "test:server": "go test ./apps/server/...",
     "typecheck": "pnpm -r --if-present typecheck"
   },
