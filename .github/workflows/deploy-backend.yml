@@ -86,7 +86,9 @@ jobs:
             && docker login ghcr.io -u '${{ github.actor }}' -p '${GHCR_TOKEN}' \
             && docker compose pull \
             && docker compose up -d \
-            && docker image prune -f"
+            && docker image prune -af \
+              --filter 'label=com.videotogether.service=server' \
+              --filter 'until=168h'"
 
       - name: Verify public health check
         run: curl --fail --retry 20 --retry-delay 3 --retry-all-errors "${BACKEND_PUBLIC_URL%/}/healthz"
