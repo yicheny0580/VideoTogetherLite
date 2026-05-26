@@ -20,16 +20,23 @@ func Init() {
 }
 
 type slashFix struct {
-	mux         http.Handler
-	liteService *VideoTogetherLiteService
+	liteService  *VideoTogetherLiteService
+	mux          http.Handler
+	originPolicy *originPolicy
 }
 
-func newSlashFix(liteService *VideoTogetherLiteService) *slashFix {
+func newSlashFix(liteService *VideoTogetherLiteService, policies ...*originPolicy) *slashFix {
+	policy := newOriginPolicy([]string{"*"})
+	if len(policies) > 0 && policies[0] != nil {
+		policy = policies[0]
+	}
 	s := &slashFix{
-		liteService: liteService,
+		liteService:  liteService,
+		originPolicy: policy,
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /api/v1/timestamp", s.handleTimestamp)
 	mux.HandleFunc("POST /api/v1/rooms/create", s.handleRoomCreate)
 	mux.HandleFunc("POST /api/v1/rooms/join", s.handleRoomJoin)
@@ -53,7 +60,10 @@ func (h *slashFix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	r.URL.Path = strings.ReplaceAll(r.URL.Path, "//", "/")
-	h.enableCors(w)
+	if !h.enableCors(w, r) {
+		h.respondError(w, newAppError(errForbidden, "origin is not allowed"))
+		return
+	}
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -63,6 +73,12 @@ func (h *slashFix) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 type TimestampResponse struct {
+	Timestamp                float64 `json:"timestamp"`
+	VideoTogetherLiteVersion int     `json:"videoTogetherLiteVersion,omitempty"`
+}
+
+type HealthResponse struct {
+	Status                   string  `json:"status"`
 	Timestamp                float64 `json:"timestamp"`
 	VideoTogetherLiteVersion int     `json:"videoTogetherLiteVersion,omitempty"`
 }
@@ -121,6 +137,14 @@ type updateRoomRequest struct {
 
 func (h *slashFix) handleTimestamp(w http.ResponseWriter, _ *http.Request) {
 	h.JSON(w, http.StatusOK, TimestampResponse{
+		Timestamp:                h.liteService.Timestamp(),
+		VideoTogetherLiteVersion: videoTogetherLiteVersion,
+	})
+}
+
+func (h *slashFix) handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	h.JSON(w, http.StatusOK, HealthResponse{
+		Status:                   "ok",
 		Timestamp:                h.liteService.Timestamp(),
 		VideoTogetherLiteVersion: videoTogetherLiteVersion,
 	})
@@ -259,12 +283,23 @@ func (h *slashFix) respondError(w io.Writer, err error) {
 	})
 }
 
-func (h *slashFix) enableCors(w http.ResponseWriter) {
+func (h *slashFix) enableCors(w http.ResponseWriter, r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	corsOrigin, ok := h.originPolicy.corsOrigin(origin)
+	if !ok {
+		return false
+	}
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	w.Header().Set("Access-Control-Allow-Private-Network", "true")
 	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Max-Age", "86400")
+	if corsOrigin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", corsOrigin)
+		if corsOrigin != "*" {
+			w.Header().Add("Vary", "Origin")
+		}
+	}
+	return true
 }
 
 func validateRoomUpdate(body updateRoomRequest) error {

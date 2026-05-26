@@ -1,4 +1,4 @@
-# HTTP API specification
+# HTTP And WebSocket API Specification
 
 The Go implementation lives in `apps/server`. TypeScript protocol types for the Chrome extension live in `packages/shared`.
 
@@ -13,7 +13,41 @@ All room APIs are under `/api/v1`, use JSON, and return either a success body or
 }
 ```
 
-#### GET /api/v1/timestamp
+## Release Compatibility
+
+The API is versioned by path. Keep additive response changes backward-compatible with the current Chrome extension release. Breaking changes should use a new path version or a coordinated backend and extension rollout.
+
+The extension sends a runtime `version` query parameter for cache/state compatibility checks, but the server does not use it for routing.
+
+## State Model
+
+The backend keeps all state in memory:
+
+- Rooms are keyed by generated room code.
+- Invite codes combine room code and invite secret.
+- Session tokens authenticate subsequent room operations.
+- A browser-profile user can have one active room session at a time.
+- Participant state includes nickname, last-seen server time, sharing flag, and optional shared video state.
+
+Rooms are deleted when the last participant leaves or when all participants are inactive beyond `ROOM_TTL`. The default TTL is `3m`.
+
+## Health
+
+### GET /healthz
+
+Returns process health for Caddy and GitHub Actions checks.
+
+```json
+{
+  "status": "ok",
+  "timestamp": 1.123,
+  "videoTogetherLiteVersion": 123
+}
+```
+
+## HTTP Endpoints
+
+### GET /api/v1/timestamp
 
 Returns server time and the current runtime version token.
 
@@ -24,9 +58,11 @@ Returns server time and the current runtime version token.
 }
 ```
 
-#### POST /api/v1/rooms/create
+### POST /api/v1/rooms/create
 
 Creates a room, joins the creator as a participant, and returns an invite code.
+
+Request:
 
 ```json
 {
@@ -35,9 +71,11 @@ Creates a room, joins the creator as a participant, and returns an invite code.
 }
 ```
 
-#### POST /api/v1/rooms/join
+### POST /api/v1/rooms/join
 
-Joins an existing room using a generated invite code.
+Joins an existing room using either `inviteCode` or `roomCode` plus `inviteSecret`.
+
+Request:
 
 ```json
 {
@@ -47,9 +85,11 @@ Joins an existing room using a generated invite code.
 }
 ```
 
-#### POST /api/v1/rooms/get
+### POST /api/v1/rooms/get
 
 Gets room participant state using a room session token.
+
+Request:
 
 ```json
 {
@@ -57,9 +97,11 @@ Gets room participant state using a room session token.
 }
 ```
 
-#### POST /api/v1/rooms/update
+### POST /api/v1/rooms/update
 
 Updates the current participant nickname, presence, sharing flag, and optional shared video state.
+
+Request:
 
 ```json
 {
@@ -81,9 +123,13 @@ Updates the current participant nickname, presence, sharing flag, and optional s
 }
 ```
 
-#### POST /api/v1/rooms/leave
+When `sharing` is true, `focusedVideo` is required. The server overwrites `lastUpdateServerTime` with its own timestamp before storing the state.
+
+### POST /api/v1/rooms/leave
 
 Leaves the current room. The server deletes the room immediately when the last participant leaves or times out.
+
+Request:
 
 ```json
 {
@@ -91,7 +137,7 @@ Leaves the current room. The server deletes the room immediately when the last p
 }
 ```
 
-Room responses include:
+## Room Response
 
 ```json
 {
@@ -126,11 +172,13 @@ Room responses include:
 }
 ```
 
-#### GET /api/v1/ws
+## WebSocket
 
-WebSocket endpoint for room updates.
+### GET /api/v1/ws
 
-Client messages use:
+WebSocket endpoint for room updates. The extension uses it as the live update channel and keeps HTTP as the fallback for direct room operations.
+
+Client messages:
 
 ```json
 {
@@ -142,7 +190,7 @@ Client messages use:
 }
 ```
 
-Supported message types:
+Supported client message types:
 
 - `room.create`
 - `room.join`
@@ -150,4 +198,15 @@ Supported message types:
 - `room.leave`
 - `room.update`
 
-Server messages include direct responses with the request `id`, `room.updated` broadcasts, `timestamp.replay`, and structured `error` responses.
+Server messages:
+
+- Direct responses echo the request `id` and message `type`.
+- `room.updated` broadcasts current room state after joins, leaves, and updates.
+- `timestamp.replay` returns client and server timestamps after room updates.
+- `error` returns the same structured error body used by HTTP.
+
+WebSocket connections are room-scoped after a successful create, join, get, or update message. Slow clients can be disconnected when their send queue is full.
+
+## Origin Policy
+
+`ALLOWED_ORIGINS` controls both CORS and WebSocket origin checks. The release default is `*` because the injected page app sends requests from arbitrary video-page origins. If the architecture changes to route backend traffic through a stable extension origin, set a comma-separated allow list.

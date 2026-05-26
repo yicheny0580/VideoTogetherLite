@@ -1,0 +1,5 @@
+VideoTogether
+*.pem
+dist
+coverage
+*.test

@@ -12,8 +12,13 @@ import (
 )
 
 func (h *slashFix) newWsHandler(hub *Hub) http.HandlerFunc {
+	wsUpgrader := websocket.Upgrader{
+		CheckOrigin:     h.originPolicy.allowRequest,
+		ReadBufferSize:  1024,
+		WriteBufferSize: 1024,
+	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
+		conn, err := wsUpgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
@@ -123,14 +128,6 @@ const (
 	pingPeriod     = (pongWait * 9) / 10
 	maxMessageSize = 512 * 1024
 )
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
 
 type Client struct {
 	hub         *Hub

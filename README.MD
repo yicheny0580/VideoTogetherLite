@@ -1,25 +1,27 @@
 # VideoTogether Lite
 
-## VideoTogether Lite is a Chrome extension that syncs video playback with friends in real time.
+VideoTogether Lite is a Chrome extension and Go backend for watching videos together. A user creates an invite-code room, other viewers join with nicknames, and participants can explicitly share the video they are watching so everyone else can follow the same playback state.
 
-Rooms use generated invite codes and participant nicknames. A browser profile can be in one room at a time, and users explicitly pick the video they want to share before enabling progress sharing.
+[中文](./README_zh.MD)
 
-## Visit https://github.com/yicheny0580/VideoTogetherLite for more information
+## What Is Included
 
-[ English ] [ [中文](https://github.com/yicheny0580/VideoTogetherLite/blob/main/README_zh.MD) ]
+- `apps/extension`: Chrome MV3 extension built with Vite, TypeScript, React, and Tailwind.
+- `apps/server`: Go room-sync API and WebSocket backend.
+- `packages/shared`: shared protocol, language, URL, and time-sync helpers.
+- `deploy`: Docker Compose and Caddy assets for a tiny VPS deployment.
+- `.github/workflows`: CI, backend image publishing, backend deploy, extension package, and Chrome Web Store upload workflows.
 
-## Installation
-
-Build the extension and load the unpacked Chrome MV3 output from `apps/extension/dist`.
+## Install Locally
 
 ```bash
 just setup
 just build-extension
 ```
 
-## Development
+Open `chrome://extensions`, enable developer mode, and load `apps/extension/dist` as an unpacked extension.
 
-This repository is a pnpm monorepo with a Go debug server.
+## Development
 
 Prerequisites:
 
@@ -28,7 +30,7 @@ Prerequisites:
 - Go 1.26.3
 - `just`
 
-For the full local loop, install dependencies and Playwright Chromium, then start the Go server, Vite extension watcher, and a Chromium profile with the unpacked extension loaded:
+Run the full local loop:
 
 ```bash
 just setup
@@ -36,29 +38,26 @@ just setup-browser
 just dev
 ```
 
-`just dev` serves the extension against `http://127.0.0.1:5001`, opens the extension popup, and opens a local fixture page with a video element. Use `just watch` to run only the server and extension watcher, or `just browser` to open an existing build from `apps/extension/dist`.
+`just dev` starts the Go debug server on `http://127.0.0.1:5001`, watches the extension build, and opens a Chromium profile with the unpacked extension and a local video fixture.
 
-Run the local verification suite with:
+Run the local verification suite:
 
 ```bash
 just check
 ```
 
-### Extension
+More details:
 
-The Chrome extension app lives in `apps/extension` and is built with Vite, TypeScript, React, and Tailwind. The main runtime layers are:
+- [User guide](./docs/user-guide.md)
+- [Development guide](./docs/development.md)
+- [Deployment guide](./docs/deployment.md)
+- [Release checklist](./docs/release-checklist.md)
+- [Privacy notes](./docs/privacy.md)
+- [Chrome Store notes](./docs/chrome-store.md)
+- [HTTP and WebSocket API](./docs/HttpApiSpec.md)
 
-- content script: injects the page app and loading state
-- page app: owns room sync orchestration and the floating panel
-- popup app: owns active-tab room controls
-- shared package: protocol, language, URL state, and time-sync helpers
+## Release Shape
 
-For local server testing:
+The backend is intended to run as one Dockerized Go process behind Caddy until room state is moved out of process memory. Release builds pass the backend URL through `VITE_VIDEOTOGETHER_LITE_HOST`; beta and production should each use their own GitHub Actions environment values.
 
-```bash
-just dev
-```
-
-### Service
-
-The Go service code is in `apps/server`.
+Support and issue tracking: https://github.com/yicheny0580/VideoTogetherLite/issues

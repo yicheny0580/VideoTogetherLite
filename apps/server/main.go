@@ -1,13 +1,15 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"errors"
 	"log"
 	"net/http"
 	"os"
-	"strings"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -42,55 +44,80 @@ func (cm *certManager) getCert() (*tls.Certificate, error) {
 	return cert, nil
 }
 
-func (cm *certManager) start() {
+func (cm *certManager) start(ctx context.Context) {
 	cm.loadCert()
 	go func() {
 		ticker := time.NewTicker(24 * time.Hour)
 		defer ticker.Stop()
-		for range ticker.C {
-			cm.loadCert()
+		for {
+			select {
+			case <-ticker.C:
+				cm.loadCert()
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 }
 
 func main() {
-	Init()
-	liteService := NewVideoTogetherLiteService(time.Minute * 3)
-	server := newSlashFix(liteService)
-	if len(os.Args) <= 1 {
-		panic(newHTTPServer(":5001", server, nil).ListenAndServe())
+	if err := run(os.Args); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run(args []string) error {
+	cfg, err := loadServerConfig(args)
+	if err != nil {
+		return err
 	}
 
-	switch strings.TrimSpace(os.Args[1]) {
-	case "debug":
-		panic(newHTTPServer("127.0.0.1:5001", server, nil).ListenAndServe())
-	case "prod":
-		certFile := os.Getenv("CERT_FILE")
-		keyFile := os.Getenv("KEY_FILE")
-		if certFile == "" {
-			certFile = "/etc/letsencrypt/live/yourdomain.com/fullchain.pem"
-		}
-		if keyFile == "" {
-			keyFile = "/etc/letsencrypt/live/yourdomain.com/privkey.pem"
-		}
+	Init()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
+	liteService := NewVideoTogetherLiteService(cfg.roomTTL)
+	server := newSlashFix(liteService, newOriginPolicy(cfg.allowedOrigins))
+
+	var tlsConfig *tls.Config
+	if cfg.tlsEnabled {
 		cm := &certManager{
-			certFile: certFile,
-			keyFile:  keyFile,
+			certFile: cfg.certFile,
+			keyFile:  cfg.keyFile,
 		}
-		cm.start()
+		cm.start(ctx)
 
-		tlsConfig := &tls.Config{
+		tlsConfig = &tls.Config{
 			GetCertificate: func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 				return cm.getCert()
 			},
 		}
+	}
 
-		httpServer := newHTTPServer(":5000", server, tlsConfig)
+	httpServer := newHTTPServer(cfg.listenAddr, server, tlsConfig)
+	errCh := make(chan error, 1)
+	go func() {
+		log.Printf("VideoTogether Lite server listening on %s", cfg.listenAddr)
+		if cfg.tlsEnabled {
+			errCh <- httpServer.ListenAndServeTLS("", "")
+			return
+		}
+		errCh <- httpServer.ListenAndServe()
+	}()
 
-		panic(httpServer.ListenAndServeTLS("", ""))
-	default:
-		panic("unknown env")
+	select {
+	case err := <-errCh:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := httpServer.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		return nil
 	}
 }
 

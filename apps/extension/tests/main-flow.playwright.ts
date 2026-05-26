@@ -21,7 +21,7 @@ test("popup controls fixture page without an enable switch", async ({ openFixtur
 
   await expect(popup.locator("#videoTogetherLiteExtensionSwitch")).toHaveCount(0);
   await expect(createButton(popup)).toBeVisible();
-  await expect(statusText(popup)).toBeVisible();
+  await expect(popup.getByText("Ready")).toBeVisible();
 });
 
 test("creates a participant room and follows an explicitly focused video", async ({

@@ -1,0 +1,64 @@
+name: Extension Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel to build.
+        required: true
+        type: choice
+        options:
+          - beta
+          - production
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Build ${{ inputs.channel }} package
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ inputs.channel }}
+    env:
+      BACKEND_PUBLIC_URL: ${{ vars.BACKEND_PUBLIC_URL || secrets.BACKEND_PUBLIC_URL }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install JS dependencies
+        run: npx pnpm@latest install --frozen-lockfile
+
+      - name: Build extension
+        env:
+          VITE_RELEASE_CHANNEL: ${{ inputs.channel }}
+          VITE_VIDEOTOGETHER_LITE_HOST: ${{ env.BACKEND_PUBLIC_URL }}
+        run: |
+          : "${BACKEND_PUBLIC_URL:?BACKEND_PUBLIC_URL is required}"
+          rm -rf apps/extension/dist
+          npx pnpm@latest build:extension
+
+      - name: Validate package
+        run: npx pnpm@latest exec node scripts/validate-extension-package.mjs apps/extension/dist "${BACKEND_PUBLIC_URL}"
+
+      - name: Zip package
+        id: package
+        run: |
+          version="$(node -e "const fs=require('node:fs'); console.log(JSON.parse(fs.readFileSync('apps/extension/dist/manifest.json', 'utf8')).version)")"
+          short_sha="${GITHUB_SHA::7}"
+          artifact_name="videotogether-lite-${{ inputs.channel }}-${version}-${short_sha}"
+          mkdir -p artifacts
+          (cd apps/extension/dist && zip -qr "../../../artifacts/${artifact_name}.zip" .)
+          echo "artifact_name=${artifact_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact_name }}
+          path: artifacts/${{ steps.package.outputs.artifact_name }}.zip
+          if-no-files-found: error

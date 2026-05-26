@@ -1,0 +1,139 @@
+name: Chrome Web Store Upload
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Release channel to build and upload.
+        required: true
+        type: choice
+        options:
+          - beta
+          - production
+      publish_type:
+        description: Publish behavior after upload.
+        required: true
+        default: STAGED_PUBLISH
+        type: choice
+        options:
+          - STAGED_PUBLISH
+          - DEFAULT_PUBLISH
+          - upload_only
+
+permissions:
+  contents: read
+
+jobs:
+  upload:
+    name: Upload ${{ inputs.channel }} package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.channel }}
+    env:
+      BACKEND_PUBLIC_URL: ${{ vars.BACKEND_PUBLIC_URL || secrets.BACKEND_PUBLIC_URL }}
+      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+      CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID || secrets.CWS_EXTENSION_ID }}
+      CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID || secrets.CWS_PUBLISHER_ID }}
+      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install JS dependencies
+        run: npx pnpm@latest install --frozen-lockfile
+
+      - name: Build extension
+        env:
+          VITE_RELEASE_CHANNEL: ${{ inputs.channel }}
+          VITE_VIDEOTOGETHER_LITE_HOST: ${{ env.BACKEND_PUBLIC_URL }}
+        run: |
+          : "${BACKEND_PUBLIC_URL:?BACKEND_PUBLIC_URL is required}"
+          rm -rf apps/extension/dist
+          npx pnpm@latest build:extension
+
+      - name: Validate package
+        run: npx pnpm@latest exec node scripts/validate-extension-package.mjs apps/extension/dist "${BACKEND_PUBLIC_URL}"
+
+      - name: Zip package
+        id: package
+        run: |
+          version="$(node -e "const fs=require('node:fs'); console.log(JSON.parse(fs.readFileSync('apps/extension/dist/manifest.json', 'utf8')).version)")"
+          short_sha="${GITHUB_SHA::7}"
+          artifact_name="videotogether-lite-${{ inputs.channel }}-${version}-${short_sha}"
+          mkdir -p artifacts
+          (cd apps/extension/dist && zip -qr "../../../artifacts/${artifact_name}.zip" .)
+          echo "zip_path=artifacts/${artifact_name}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Request Chrome Web Store access token
+        id: token
+        run: |
+          : "${CWS_PUBLISHER_ID:?CWS_PUBLISHER_ID is required}"
+          : "${CWS_EXTENSION_ID:?CWS_EXTENSION_ID is required}"
+          : "${CWS_CLIENT_ID:?CWS_CLIENT_ID is required}"
+          : "${CWS_CLIENT_SECRET:?CWS_CLIENT_SECRET is required}"
+          : "${CWS_REFRESH_TOKEN:?CWS_REFRESH_TOKEN is required}"
+          curl -fsS "https://oauth2.googleapis.com/token" \
+            -d "client_id=${CWS_CLIENT_ID}" \
+            -d "client_secret=${CWS_CLIENT_SECRET}" \
+            -d "refresh_token=${CWS_REFRESH_TOKEN}" \
+            -d "grant_type=refresh_token" \
+            -o token.json
+          access_token="$(node -e "const fs=require('node:fs'); console.log(JSON.parse(fs.readFileSync('token.json', 'utf8')).access_token)")"
+          echo "::add-mask::${access_token}"
+          echo "access_token=${access_token}" >> "$GITHUB_OUTPUT"
+
+      - name: Check current store version
+        run: |
+          curl -fsS \
+            -H "Authorization: Bearer ${{ steps.token.outputs.access_token }}" \
+            "https://chromewebstore.googleapis.com/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_EXTENSION_ID}:fetchStatus" \
+            -o cws-status.json
+          node scripts/compare-extension-version.mjs apps/extension/dist/manifest.json cws-status.json
+
+      - name: Upload package
+        run: |
+          curl -fsS \
+            -H "Authorization: Bearer ${{ steps.token.outputs.access_token }}" \
+            -H "Content-Type: application/zip" \
+            -X POST \
+            --upload-file "${{ steps.package.outputs.zip_path }}" \
+            "https://chromewebstore.googleapis.com/upload/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_EXTENSION_ID}:upload" \
+            -o cws-upload.json
+          upload_state="$(node -e "const fs=require('node:fs'); const upload=JSON.parse(fs.readFileSync('cws-upload.json', 'utf8')); console.log(upload.uploadState || 'SUCCESS');")"
+          if [ "${upload_state}" = "UPLOAD_IN_PROGRESS" ]; then
+            for attempt in $(seq 1 20); do
+              sleep 5
+              curl -fsS \
+                -H "Authorization: Bearer ${{ steps.token.outputs.access_token }}" \
+                "https://chromewebstore.googleapis.com/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_EXTENSION_ID}:fetchStatus" \
+                -o cws-status-after-upload.json
+              upload_state="$(node -e "const fs=require('node:fs'); const status=JSON.parse(fs.readFileSync('cws-status-after-upload.json', 'utf8')); console.log(status.lastAsyncUploadState || 'SUCCESS');")"
+              if [ "${upload_state}" != "UPLOAD_IN_PROGRESS" ]; then
+                break
+              fi
+            done
+          fi
+          if [ "${upload_state}" != "SUCCESS" ] && [ "${upload_state}" != "UPLOAD_STATE_UNSPECIFIED" ]; then
+            echo "Unexpected upload state: ${upload_state}" >&2
+            exit 1
+          fi
+
+      - name: Publish or stage package
+        if: inputs.publish_type != 'upload_only'
+        run: |
+          node -e "const fs=require('node:fs'); fs.writeFileSync('publish-body.json', JSON.stringify({ publishType: process.env.PUBLISH_TYPE }));"
+          curl -fsS \
+            -H "Authorization: Bearer ${{ steps.token.outputs.access_token }}" \
+            -H "Content-Type: application/json" \
+            -X POST \
+            -d @publish-body.json \
+            "https://chromewebstore.googleapis.com/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_EXTENSION_ID}:publish" \
+            -o cws-publish.json
+        env:
+          PUBLISH_TYPE: ${{ inputs.publish_type }}

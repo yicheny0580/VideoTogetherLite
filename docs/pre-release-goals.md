@@ -6,7 +6,7 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 - Backend: Dockerized Go service on a tiny VPS behind Caddy.
 - CI/CD: GitHub Actions for checks, image publishing, deployment, and extension
   artifacts.
-- Extension: private alpha/beta first, then public or unlisted Chrome Web Store
+- Extension: private beta first, then public or unlisted Chrome Web Store
   release.
 - Docs: wording updated so the repo describes the current implementation rather
   than its fork-era history.
@@ -18,34 +18,34 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 - Treat the production backend URL and Chrome Web Store item IDs as
   environment-specific release inputs.
 - Keep secrets in GitHub Actions environments, not checked-in files.
-- Make alpha/beta testing explicit: separate backend host, tester-only store
+- Make beta testing explicit: separate backend host, tester-only store
   distribution, and clear feedback instructions.
 - Keep privacy, permissions, and store listing text consistent with actual
   extension behavior.
 
 ## Backend Deployment
 
-- [ ] Add a production `Dockerfile` for `apps/server`.
+- [x] Add a production `Dockerfile` for `apps/server`.
   - Build a static or minimal Go binary.
   - Run as a non-root user.
   - Expose an HTTP port for Caddy to proxy to.
 
-- [ ] Make the server deployment-friendly behind Caddy.
+- [x] Make the server deployment-friendly behind Caddy.
   - Support `$PORT` or `$LISTEN_ADDR`.
   - Prefer plain HTTP inside Docker.
   - Keep direct TLS mode only if it is still useful for manual deployments.
 
-- [ ] Add backend health and lifecycle support.
+- [x] Add backend health and lifecycle support.
   - Add `/healthz` for GitHub Actions and Caddy checks.
   - Add graceful shutdown on `SIGTERM`/`SIGINT`.
   - Make room TTL configurable.
 
-- [ ] Tighten production network policy.
+- [x] Tighten production network policy.
   - Review CORS and WebSocket origin handling.
   - Allow the published extension/backend host combinations needed for release.
   - Document the tradeoff if broad origins are intentionally kept.
 
-- [ ] Add VPS deployment assets.
+- [x] Add VPS deployment assets.
   - `deploy/docker-compose.yml`
   - `deploy/Caddyfile`
   - `.env.example` for non-secret deployment variables
@@ -53,28 +53,27 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 
 ## GitHub Actions CI/CD
 
-- [ ] Split CI from deployment.
+- [x] Split CI from deployment.
   - Keep PR/push checks for lint, typecheck, tests, Go tests, and builds.
   - Use manually triggered or tag-triggered workflows for deployment.
 
-- [ ] Add backend image workflow.
+- [x] Add backend image workflow.
   - Build Docker image from `apps/server`.
   - Tag images with git SHA and release tag.
   - Push immutable images to GHCR.
 
-- [ ] Add VPS deploy workflow.
+- [x] Add VPS deploy workflow.
   - Use GitHub Actions environment secrets.
   - SSH to the VPS.
   - Pull the selected image tag.
   - Run `docker compose up -d`.
   - Verify `/healthz` through the public Caddy URL.
 
-- [ ] Configure GitHub Actions environments.
-  - `alpha`
+- [x] Configure GitHub Actions environments.
   - `beta`
   - `production`
 
-- [ ] Define required secrets and variables per environment.
+- [x] Define required secrets and variables per environment.
   - `VPS_HOST`
   - `VPS_USER`
   - `VPS_SSH_KEY`
@@ -84,38 +83,37 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
   - Chrome Web Store OAuth/client credentials
   - any registry credentials not covered by `GITHUB_TOKEN`
 
-- [ ] Gate production deploys.
+- [x] Gate production deploys.
   - Use required reviewers for the `production` environment.
   - Add deployment concurrency so two production deploys cannot race.
 
 ## Extension Release Channels
 
-- [ ] Decide Chrome Web Store item strategy.
-  - For short alpha/beta: use one private item with trusted testers.
+- [x] Decide Chrome Web Store item strategy.
+  - For short beta testing: use one private item with trusted testers.
   - For long-running beta in parallel with production: use a separate beta item.
   - For production: decide public vs unlisted.
 
-- [ ] Add channel-specific build support.
-  - `alpha` builds point at the alpha backend URL.
+- [x] Add channel-specific build support.
   - `beta` builds point at the beta backend URL.
   - `production` builds point at the production backend URL.
   - Artifact names include channel, manifest version, and git SHA.
 
-- [ ] Add extension package workflow.
+- [x] Add extension package workflow.
   - Clean `apps/extension/dist`.
   - Build with the selected backend URL.
   - Validate `manifest.json`.
   - Zip the Chrome Web Store package.
   - Upload the ZIP as a GitHub Actions artifact.
 
-- [ ] Add Chrome Web Store upload workflow.
+- [x] Add Chrome Web Store upload workflow.
   - Upload package to an existing Chrome Web Store item.
   - Require manifest version bumps.
   - Prefer staged/deferred publish after review.
   - Keep initial item setup, privacy fields, listing, and trusted tester setup
     manual until the store item is stable.
 
-- [ ] Prepare alpha/beta tester flow.
+- [x] Prepare beta tester flow.
   - Maintain the selected tester email list outside the repo.
   - Document how testers install the private item.
   - Document how testers report bugs.
@@ -123,12 +121,12 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 
 ## Chrome Store Readiness
 
-- [ ] Audit manifest permissions.
+- [x] Audit manifest permissions.
   - Justify `<all_urls>`, `all_frames`, `storage`, and `activeTab`.
   - Remove unused permissions.
   - Keep the extension single-purpose and easy to explain.
 
-- [ ] Prepare store listing content.
+- [x] Prepare store listing content.
   - Short description.
   - Long description.
   - Screenshots.
@@ -136,14 +134,14 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
   - Support URL or email.
   - Privacy policy URL.
 
-- [ ] Prepare Chrome review notes.
+- [x] Prepare Chrome review notes.
   - State the extension's single purpose.
   - Explain why it injects into pages with videos.
   - Explain backend communication.
   - Confirm no remote code is executed.
   - Provide test instructions if review needs a room-sync scenario.
 
-- [ ] Prepare privacy declarations.
+- [x] Prepare privacy declarations.
   - Generated user ID.
   - Nickname.
   - Invite code and session token.
@@ -154,68 +152,68 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 
 ## Repo-Wide Docs And Wording
 
-- [ ] Rewrite root README files.
+- [x] Rewrite root README files.
   - Update `README.MD`.
   - Update `README_zh.MD`.
   - Remove fork-era support wording and stale upstream URLs.
   - Describe the current product directly.
 
-- [ ] Add or update project identity metadata.
+- [x] Add or update project identity metadata.
   - Extension name and description.
   - Package names and versions where relevant.
   - Support links and issue links.
 
-- [ ] Add user documentation.
+- [x] Add user documentation.
   - `docs/user-guide.md`
   - `docs/zh-cn/user-guide.md`
   - Cover install, create room, join room, pick video, follow shared video,
     leave room, and troubleshooting.
 
-- [ ] Add development documentation.
+- [x] Add development documentation.
   - `docs/development.md`
   - Keep `docs/zh-cn/development.md` in sync.
   - Cover local setup, build modes, tests, e2e tests, and backend host override.
 
-- [ ] Add deployment documentation.
+- [x] Add deployment documentation.
   - `docs/deployment.md`
   - Cover tiny VPS, Docker, Caddy, GitHub Actions, secrets, logs, rollback, and
     health checks.
 
-- [ ] Add release documentation.
+- [x] Add release documentation.
   - `docs/release-checklist.md`
-  - Cover alpha, beta, and production gates.
+  - Cover beta and production gates.
   - Include backend deploy, extension publish, smoke tests, monitoring, and
     rollback.
 
-- [ ] Add privacy documentation.
+- [x] Add privacy documentation.
   - `docs/privacy.md`
   - Use this as the source of truth for Chrome Web Store privacy fields.
 
-- [ ] Refresh backend docs.
+- [x] Refresh backend docs.
   - Update `apps/server/README.md`.
   - Make Docker + Caddy the main production path.
   - Mention in-memory state and single-replica deployment.
 
-- [ ] Refresh API docs.
+- [x] Refresh API docs.
   - Update `docs/HttpApiSpec.md`.
   - Document WebSocket behavior, room TTL, state model, and release
     compatibility expectations.
 
-- [ ] Add stale wording checks.
+- [x] Add stale wording checks.
   - Scan docs for old repo URLs.
   - Scan for `fork`, removed legacy feature claims, old backend hosts, and old
     release instructions.
 
-## Verification Before Alpha
+## Verification Before Beta
 
 - [ ] `just check` passes locally and in GitHub Actions.
-- [ ] Backend Docker image runs locally.
-- [ ] Caddy reverse proxy handles HTTP and WebSocket traffic.
-- [ ] Alpha backend is deployed from GitHub Actions.
-- [ ] Alpha extension ZIP is built by GitHub Actions.
-- [ ] Alpha Chrome Web Store item is private and limited to trusted testers.
-- [ ] Create/join/update/leave room flow passes through the public alpha URL.
-- [ ] YouTube, Bilibili, and basic HTML video smoke tests pass.
+- [x] Backend Docker image runs locally.
+- [x] Caddy reverse proxy handles HTTP and WebSocket traffic.
+- [ ] Beta backend is deployed from GitHub Actions.
+- [ ] Beta extension ZIP is built by GitHub Actions.
+- [ ] Beta Chrome Web Store item is private and limited to trusted testers.
+- [ ] Create/join/update/leave room flow passes through the public beta URL.
+- [x] YouTube, Bilibili, and basic HTML video smoke tests pass.
 - [ ] Privacy and tester docs are published or linked from the store listing.
 
 ## Verification Before Production
@@ -224,8 +222,8 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 - [ ] Production extension build uses the production backend URL.
 - [ ] Store listing, privacy fields, permissions, and review notes are final.
 - [ ] Production release checklist is complete.
-- [ ] Rollback path is tested for backend and extension package.
-- [ ] Monitoring/log review process is documented.
+- [x] Rollback path is tested for backend and extension package.
+- [x] Monitoring/log review process is documented.
 
 ## References
 

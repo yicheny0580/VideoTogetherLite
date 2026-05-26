@@ -1,50 +1,59 @@
-# <a name="0">VideoTogether Lite 一起看视频</a>
+# VideoTogether Lite 一起看视频
 
+VideoTogether Lite 是一个用于同步视频播放的 Chrome 扩展和 Go 后端服务。用户可以创建邀请码房间，其他人用昵称加入；每个参与者需要主动选择并共享当前视频，其他参与者才能跟随播放状态。
 
-## VideoTogether Lite 是一个用于同步视频播放的 Chrome 插件。
+[English](./README.MD)
 
-文档正在完善中
-请查看 fork 仓库获取更详细的帮助信息，以及反馈问题
+## 仓库内容
 
-项目主页: https://github.com/yicheny0580/VideoTogetherLite
+- `apps/extension`: 使用 Vite、TypeScript、React 和 Tailwind 构建的 Chrome MV3 扩展。
+- `apps/server`: Go 房间同步 API 和 WebSocket 后端。
+- `packages/shared`: 共享协议、语言、URL 状态和时间同步工具。
+- `deploy`: 小型 VPS 上使用 Docker Compose 和 Caddy 部署的配置。
+- `.github/workflows`: CI、后端镜像发布、后端部署、扩展打包和 Chrome Web Store 上传流程。
 
-问题反馈: https://github.com/yicheny0580/VideoTogetherLite/issues
-
-也欢迎提交任何 issue 以及 PR
-
-## 安装使用
-
-运行以下命令后，在 Chrome 扩展页面加载 `apps/extension/dist`。
+## 本地安装
 
 ```bash
 just setup
 just build-extension
 ```
 
+打开 `chrome://extensions`，启用开发者模式，然后加载已解压的 `apps/extension/dist`。
 
 ## 开发
 
-请查阅 [开发文档](./docs/zh-cn/development.md)
+前置依赖：
 
-### 插件
+- Node.js 24 或更新版本
+- pnpm 11.3 或更新版本
+- Go 1.26.3
+- `just`
 
-插件代码在 `apps/extension`，使用 Vite、TypeScript、React 和 Tailwind 构建。
+运行完整本地开发循环：
 
-共享协议、语言、URL 状态和时间同步工具在 `packages/shared`。
+```bash
+just setup
+just setup-browser
+just dev
+```
 
-Lite 版本只保留创建/加入房间和播放同步。语音、文字聊天、本地下载、Easy Share、Safari、Firefox、网页代理和生成的 release 文件已移除。
+`just dev` 会启动 `http://127.0.0.1:5001` 上的 Go 调试服务，监听扩展构建，并打开已加载扩展的 Chromium 以及一个本地视频调试页面。
 
-### 服务端
+运行检查：
 
-代码在 `apps/server`。
+```bash
+just check
+```
 
+更多文档：
 
-### 赞助
+- [用户指南](./docs/zh-cn/user-guide.md)
+- [开发文档](./docs/zh-cn/development.md)
+- [部署文档](./docs/deployment.md)
+- [发布清单](./docs/release-checklist.md)
+- [隐私说明](./docs/privacy.md)
+- [Chrome 商店说明](./docs/chrome-store.md)
+- [HTTP 和 WebSocket API](./docs/HttpApiSpec.md)
 
-项目天使轮赞助
-
-<img src="https://user-images.githubusercontent.com/23057110/175770059-c8faad24-dc79-42da-9359-bf462eb7e884.png" width="300">
-
-七夕追加赞助
-
-<img width="290" alt="B54A4B2B-D606-4CD8-B5BF-0AA53CD1B010" src="https://user-images.githubusercontent.com/23057110/182861201-022c9460-9174-47ce-b8d8-3ab3ff737e25.png">
+问题反馈: https://github.com/yicheny0580/VideoTogetherLite/issues

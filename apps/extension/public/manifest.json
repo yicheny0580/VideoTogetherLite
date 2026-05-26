@@ -1,7 +1,7 @@
 {
   "name": "VideoTogether Lite",
   "description": "Sync video playback with friends",
-  "version": "3.0.23",
+  "version": "0.1.0",
   "manifest_version": 3,
   "content_scripts": [
     {

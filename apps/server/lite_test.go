@@ -19,6 +19,67 @@ func newTestServer() (*httptest.Server, *VideoTogetherLiteService) {
 	return httptest.NewServer(api), liteService
 }
 
+func TestHealthz(t *testing.T) {
+	server, _ := newTestServer()
+	defer server.Close()
+
+	response, err := http.Get(server.URL + "/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("expected health ok, got %d", response.StatusCode)
+	}
+
+	var body HealthResponse
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Status != "ok" || body.Timestamp == 0 {
+		t.Fatalf("unexpected health response: %+v", body)
+	}
+}
+
+func TestCorsOriginPolicy(t *testing.T) {
+	Init()
+	service := NewVideoTogetherLiteService(time.Minute)
+	api := newSlashFix(service, newOriginPolicy([]string{"https://allowed.example"}))
+	server := httptest.NewServer(api)
+	defer server.Close()
+
+	request, err := http.NewRequest(http.MethodOptions, server.URL+"/api/v1/timestamp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Origin", "https://blocked.example")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected forbidden preflight, got %d", response.StatusCode)
+	}
+
+	request, err = http.NewRequest(http.MethodOptions, server.URL+"/api/v1/timestamp", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Origin", "https://allowed.example")
+	response, err = http.DefaultClient.Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusNoContent {
+		t.Fatalf("expected no content preflight, got %d", response.StatusCode)
+	}
+	if response.Header.Get("Access-Control-Allow-Origin") != "https://allowed.example" {
+		t.Fatalf("unexpected CORS origin: %q", response.Header.Get("Access-Control-Allow-Origin"))
+	}
+}
+
 func TestCreateJoinAndGetWithInviteCode(t *testing.T) {
 	server, _ := newTestServer()
 	defer server.Close()

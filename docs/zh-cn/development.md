@@ -1,65 +1,106 @@
 # 开发文档
 
-## 运行本地插件代码
-
-本仓库现在是 pnpm monorepo。Chrome 插件代码在 `apps/extension`，后端服务在 `apps/server`。
-
-### 前置依赖
+## 前置依赖
 
 - Node.js 24 或更新版本
 - pnpm 11.3 或更新版本
 - Go 1.26.3
 - `just`
 
-### 1. 安装依赖
+## 初始化
 
 ```bash
 just setup
+just setup-browser
 ```
 
-### 2. 编译插件
+`just setup` 会安装 JS 依赖并下载 Go 模块。`just setup-browser` 会安装用于本地扩展运行和 e2e 测试的 Playwright Chromium。
 
-```bash
-just build-extension
-```
-
-编译产物会输出到 `apps/extension/dist`。
-
-### 3. 运行本地插件
-
-编译完成后，在 Chrome 插件页面 [chrome://extensions/](chrome://extensions/) 加载已解压的扩展程序 `apps/extension/dist`。
-
-### 4. 开发模式
+## 本地模式
 
 运行完整本地开发循环：
 
 ```bash
-just setup-browser
 just dev
 ```
 
-`just dev` 会启动 `127.0.0.1:5001` 上的 Go 调试服务，运行插件 watch 构建，并打开已加载 `apps/extension/dist` 的 Chromium。它还会打开插件 popup 和一个包含 video 元素的本地调试页面。
+该命令会编译临时 Go 后端，在 `http://127.0.0.1:5001` 启动 debug 服务，监听扩展构建，打开加载 `apps/extension/dist` 的 Chromium，打开 popup，并打开一个本地 HTML 视频调试页面。
 
-如果只需要服务和插件 watch 构建，不打开浏览器：
+只启动服务和扩展监听构建：
 
 ```bash
 just watch
 ```
 
-如果已经有 `apps/extension/dist`，只想打开浏览器：
+使用已有构建打开 Chromium：
 
 ```bash
 just browser
 ```
 
-### 5. 检查
+只运行后端：
+
+```bash
+just server
+```
+
+## 后端地址覆盖
+
+扩展会在构建时读取 `VITE_VIDEOTOGETHER_LITE_HOST`。
+
+```bash
+VITE_VIDEOTOGETHER_LITE_HOST=https://beta.example.com pnpm build:extension
+```
+
+如果没有设置该值，开发构建会使用 `http://127.0.0.1:5001`。
+
+## 检查
 
 ```bash
 just check
 ```
 
-## 本地调试后端服务
+该命令会运行 lint、过期文案检查、类型检查、JS 测试、扩展构建和 Go 测试。
+
+单独运行：
 
 ```bash
-just server
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+go test ./apps/server/...
 ```
+
+运行扩展 e2e 测试：
+
+```bash
+just test-e2e
+```
+
+针对本地或已部署后端运行 smoke 流程：
+
+```bash
+BACKEND_PUBLIC_URL=https://beta.example.com just smoke-backend
+```
+
+该流程会检查 `/healthz`、时间戳、创建房间、加入房间、更新房间、退出房间，以及 WebSocket `room.updated` 广播。
+
+通过临时 Caddy 反向代理运行后端 Docker 镜像：
+
+```bash
+just smoke-docker
+```
+
+该命令需要正在运行的 Docker daemon，并可能拉取 Go、distroless 和 Caddy 镜像。
+
+## 发布构建
+
+发布产物通过 GitHub Actions 生成：
+
+- `Backend Image` 将 Go 后端镜像发布到 GHCR。
+- `Deploy Backend` 通过 Docker Compose 和 Caddy 更新 VPS 环境。
+- `Extension Package` 生成指定渠道的 ZIP 产物。
+- `Chrome Web Store Upload` 将已提升版本号的 ZIP 上传到现有商店项目。
+
+Beta 和 production 构建必须在对应 GitHub Actions environment 中设置 `BACKEND_PUBLIC_URL`。

@@ -1,0 +1,30 @@
+services:
+  server:
+    image: ${SERVER_IMAGE:?set SERVER_IMAGE to the GHCR image tag}
+    restart: unless-stopped
+    environment:
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-*}
+      LISTEN_ADDR: :8080
+      ROOM_TTL: ${ROOM_TTL:-3m}
+    expose:
+      - "8080"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      BACKEND_DOMAIN: ${BACKEND_DOMAIN:?set BACKEND_DOMAIN to the backend host}
+      CADDY_EMAIL: ${CADDY_EMAIL:?set CADDY_EMAIL for ACME notices}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_config:/config
+      - caddy_data:/data
+
+volumes:
+  caddy_config:
+  caddy_data:

@@ -1,6 +1,7 @@
 {
   "name": "@videotogetherlite/shared",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Shared protocol and browser helpers for VideoTogether Lite.",
   "private": true,
   "type": "module",
   "exports": {
