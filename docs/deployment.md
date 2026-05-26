@@ -147,9 +147,7 @@ Environment secrets:
 - `VPS_SSH_KEY`
 - `BACKEND_PUBLIC_URL` if not stored as an environment variable
 - `CADDY_EMAIL` if not stored as an environment variable
-- `CWS_CLIENT_ID`
-- `CWS_CLIENT_SECRET`
-- `CWS_REFRESH_TOKEN`
+- `CWS_SERVICE_ACCOUNT_JSON`
 
 Environment variables:
 
@@ -171,12 +169,13 @@ gh variable set CWS_EXTENSION_ID --env beta --body extension-id
 gh secret set VPS_HOST --env beta --body vps.example.com
 gh secret set VPS_USER --env beta --body deploy
 gh secret set VPS_SSH_KEY --env beta < ~/.ssh/videotogether_deploy
-gh secret set CWS_CLIENT_ID --env beta --body client-id
-gh secret set CWS_CLIENT_SECRET --env beta --body client-secret
-gh secret set CWS_REFRESH_TOKEN --env beta --body refresh-token
+gh secret set CWS_SERVICE_ACCOUNT_JSON --env beta --body "$(jq -c . service-account.json)"
 ```
 
 Repeat for `production` with its production backend URL, VPS target, and Chrome Web Store item ID.
+
+The Chrome Web Store service account must also be granted access in the Chrome
+Web Store Developer Dashboard under the publisher account settings.
 
 You can also set the same inputs from local environment variables or a dotenv-style file:
 

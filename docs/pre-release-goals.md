@@ -80,7 +80,7 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
   - `BACKEND_PUBLIC_URL`
   - `CWS_PUBLISHER_ID`
   - `CWS_EXTENSION_ID`
-  - Chrome Web Store OAuth/client credentials
+  - Chrome Web Store service-account credentials
   - any registry credentials not covered by `GITHUB_TOKEN`
 
 - [x] Gate production deploys.

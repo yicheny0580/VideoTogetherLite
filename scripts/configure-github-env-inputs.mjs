@@ -8,6 +8,7 @@ const targetEnvironments = (process.env.TARGET_ENVIRONMENTS ?? defaultEnvironmen
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
+const dryRun = process.env.RELEASE_INPUTS_DRY_RUN === "1";
 
 const variableInputs = [
   "ALLOWED_ORIGINS",
@@ -18,9 +19,7 @@ const variableInputs = [
   "ROOM_TTL"
 ];
 const secretInputs = [
-  "CWS_CLIENT_ID",
-  "CWS_CLIENT_SECRET",
-  "CWS_REFRESH_TOKEN",
+  "CWS_SERVICE_ACCOUNT_JSON",
   "VPS_HOST",
   "VPS_SSH_KEY",
   "VPS_USER"
@@ -56,7 +55,10 @@ async function repoSlug() {
 
 function parseDotenv(content) {
   const values = new Map();
-  for (const rawLine of content.split(/\r?\n/)) {
+  const lines = content.split(/\r?\n/);
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
     const line = rawLine.trim();
     if (line === "" || line.startsWith("#")) {
       continue;
@@ -67,15 +69,54 @@ function parseDotenv(content) {
     }
     const key = line.slice(0, equals).trim();
     let value = line.slice(equals + 1).trim();
-    if (
-      (value.startsWith("\"") && value.endsWith("\""))
-      || (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
+    const quote = value[0];
+
+    if (quote === "\"" || quote === "'") {
+      if (value.length > 1 && value.endsWith(quote)) {
+        value = value.slice(1, -1);
+      } else {
+        const chunks = [value.slice(1)];
+        let closed = false;
+        for (index += 1; index < lines.length; index += 1) {
+          const continuation = lines[index].trimEnd();
+          if (continuation.endsWith(quote)) {
+            chunks.push(continuation.slice(0, -1));
+            closed = true;
+            break;
+          }
+          chunks.push(lines[index]);
+        }
+        if (!closed) {
+          throw new Error(`Unterminated quoted value for ${key}`);
+        }
+        value = chunks.join("\n");
+      }
     }
-    values.set(key, value.replaceAll("\\n", "\n"));
+    values.set(key, key.endsWith("_JSON") ? value : value.replaceAll("\\n", "\n"));
   }
   return values;
+}
+
+function validateValue(environmentName, inputName, value) {
+  if (inputName !== "CWS_SERVICE_ACCOUNT_JSON") {
+    return true;
+  }
+  try {
+    const credentials = JSON.parse(value);
+    const missing = ["type", "client_email", "private_key", "token_uri"].filter((key) => !credentials[key]);
+    if (credentials.type !== "service_account") {
+      console.error(`${environmentName}: ${inputName} must have type=service_account.`);
+      return false;
+    }
+    if (missing.length > 0) {
+      console.error(`${environmentName}: ${inputName} is missing ${missing.join(", ")}.`);
+      return false;
+    }
+    return true;
+  } catch (error) {
+    console.error(`${environmentName}: ${inputName} is not valid JSON: ${error.message}`);
+    return false;
+  }
 }
 
 async function loadFileValues() {
@@ -154,8 +195,16 @@ for (const environmentName of targetEnvironments) {
       }
       continue;
     }
-    await setWithRetry("variable", repo, environmentName, inputName, value);
-    console.log(`Set environment variable ${inputName} for ${environmentName}.`);
+    if (!validateValue(environmentName, inputName, value)) {
+      missingCount += 1;
+      continue;
+    }
+    if (dryRun) {
+      console.log(`Validated environment variable ${inputName} for ${environmentName}.`);
+    } else {
+      await setWithRetry("variable", repo, environmentName, inputName, value);
+      console.log(`Set environment variable ${inputName} for ${environmentName}.`);
+    }
   }
 
   for (const inputName of secretInputs) {
@@ -165,8 +214,16 @@ for (const environmentName of targetEnvironments) {
       missingCount += 1;
       continue;
     }
-    await setWithRetry("secret", repo, environmentName, inputName, value);
-    console.log(`Set environment secret ${inputName} for ${environmentName}.`);
+    if (!validateValue(environmentName, inputName, value)) {
+      missingCount += 1;
+      continue;
+    }
+    if (dryRun) {
+      console.log(`Validated environment secret ${inputName} for ${environmentName}.`);
+    } else {
+      await setWithRetry("secret", repo, environmentName, inputName, value);
+      console.log(`Set environment secret ${inputName} for ${environmentName}.`);
+    }
   }
 }
 
