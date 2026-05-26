@@ -31,14 +31,19 @@ jobs:
     environment: ${{ inputs.channel }}
     env:
       BACKEND_PUBLIC_URL: ${{ vars.BACKEND_PUBLIC_URL || secrets.BACKEND_PUBLIC_URL }}
-      CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
-      CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
       CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID || secrets.CWS_EXTENSION_ID }}
       CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID || secrets.CWS_PUBLISHER_ID }}
-      CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+
+      - name: Authenticate Chrome Web Store service account
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.CWS_SERVICE_ACCOUNT_JSON }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
 
       - name: Set up Node
         uses: actions/setup-node@v4
@@ -70,28 +75,15 @@ jobs:
           (cd apps/extension/dist && zip -qr "../../../artifacts/${artifact_name}.zip" .)
           echo "zip_path=artifacts/${artifact_name}.zip" >> "$GITHUB_OUTPUT"
 
-      - name: Request Chrome Web Store access token
-        id: token
+      - name: Validate Chrome Web Store configuration
         run: |
           : "${CWS_PUBLISHER_ID:?CWS_PUBLISHER_ID is required}"
           : "${CWS_EXTENSION_ID:?CWS_EXTENSION_ID is required}"
-          : "${CWS_CLIENT_ID:?CWS_CLIENT_ID is required}"
-          : "${CWS_CLIENT_SECRET:?CWS_CLIENT_SECRET is required}"
-          : "${CWS_REFRESH_TOKEN:?CWS_REFRESH_TOKEN is required}"
-          curl -fsS "https://oauth2.googleapis.com/token" \
-            -d "client_id=${CWS_CLIENT_ID}" \
-            -d "client_secret=${CWS_CLIENT_SECRET}" \
-            -d "refresh_token=${CWS_REFRESH_TOKEN}" \
-            -d "grant_type=refresh_token" \
-            -o token.json
-          access_token="$(node -e "const fs=require('node:fs'); console.log(JSON.parse(fs.readFileSync('token.json', 'utf8')).access_token)")"
-          echo "::add-mask::${access_token}"
-          echo "access_token=${access_token}" >> "$GITHUB_OUTPUT"
 
       - name: Check current store version
         run: |
           curl -fsS \
-            -H "Authorization: Bearer ${{ steps.token.outputs.access_token }}" \
+            -H "Authorization: Bearer ${{ steps.auth.outputs.access_token }}" \
             "https://chromewebstore.googleapis.com/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_EXTENSION_ID}:fetchStatus" \
             -o cws-status.json
           node scripts/compare-extension-version.mjs apps/extension/dist/manifest.json cws-status.json
@@ -99,7 +91,7 @@ jobs:
       - name: Upload package
         run: |
           curl -fsS \
-            -H "Authorization: Bearer ${{ steps.token.outputs.access_token }}" \
+            -H "Authorization: Bearer ${{ steps.auth.outputs.access_token }}" \
             -H "Content-Type: application/zip" \
             -X POST \
             --upload-file "${{ steps.package.outputs.zip_path }}" \
@@ -110,7 +102,7 @@ jobs:
             for attempt in $(seq 1 20); do
               sleep 5
               curl -fsS \
-                -H "Authorization: Bearer ${{ steps.token.outputs.access_token }}" \
+                -H "Authorization: Bearer ${{ steps.auth.outputs.access_token }}" \
                 "https://chromewebstore.googleapis.com/v2/publishers/${CWS_PUBLISHER_ID}/items/${CWS_EXTENSION_ID}:fetchStatus" \
                 -o cws-status-after-upload.json
               upload_state="$(node -e "const fs=require('node:fs'); const status=JSON.parse(fs.readFileSync('cws-status-after-upload.json', 'utf8')); console.log(status.lastAsyncUploadState || 'SUCCESS');")"
@@ -129,7 +121,7 @@ jobs:
         run: |
           node -e "const fs=require('node:fs'); fs.writeFileSync('publish-body.json', JSON.stringify({ publishType: process.env.PUBLISH_TYPE }));"
           curl -fsS \
-            -H "Authorization: Bearer ${{ steps.token.outputs.access_token }}" \
+            -H "Authorization: Bearer ${{ steps.auth.outputs.access_token }}" \
             -H "Content-Type: application/json" \
             -X POST \
             -d @publish-body.json \

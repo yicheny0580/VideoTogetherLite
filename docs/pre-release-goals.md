@@ -11,12 +11,24 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 - Docs: wording updated so the repo describes the current implementation rather
   than its fork-era history.
 
+## Current Status
+
+- [x] Beta VPS is provisioned.
+- [x] Docker is installed on the beta VPS.
+- [x] Cloudflare DNS points the beta backend domain to the VPS.
+- [x] GitHub Actions `beta` environment inputs are configured.
+- [x] Chrome Web Store beta submission has been sent for review.
+- [ ] Chrome Web Store beta review is approved.
+- [x] Production environment setup is postponed until beta is healthy.
+
 ## Release Principles
 
 - Keep the backend to one running replica until room/session state moves out of
   process memory.
-- Treat the production backend URL and Chrome Web Store item IDs as
-  environment-specific release inputs.
+- Treat beta as the active release target.
+- Keep production backend URL, production Chrome Web Store item IDs, production
+  tagged deploys, and public production release work deferred until beta is
+  deployed and tested.
 - Keep secrets in GitHub Actions environments, not checked-in files.
 - Make beta testing explicit: separate backend host, tester-only store
   distribution, and clear feedback instructions.
@@ -69,34 +81,35 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
   - Run `docker compose up -d`.
   - Verify `/healthz` through the public Caddy URL.
 
-- [x] Configure GitHub Actions environments.
+- [x] Configure active GitHub Actions environments.
   - `beta`
-  - `production`
+  - `production` remains deferred for now.
 
-- [x] Define required secrets and variables per environment.
+- [x] Define required beta secrets and variables.
   - `VPS_HOST`
   - `VPS_USER`
   - `VPS_SSH_KEY`
   - `BACKEND_PUBLIC_URL`
   - `CWS_PUBLISHER_ID`
   - `CWS_EXTENSION_ID`
-  - Chrome Web Store OAuth/client credentials
+  - Chrome Web Store service-account credentials
   - any registry credentials not covered by `GITHUB_TOKEN`
 
-- [x] Gate production deploys.
+- [x] Keep production deploy gates ready for later.
   - Use required reviewers for the `production` environment.
   - Add deployment concurrency so two production deploys cannot race.
+  - Do not require production environment values for the beta unblock.
 
 ## Extension Release Channels
 
 - [x] Decide Chrome Web Store item strategy.
   - For short beta testing: use one private item with trusted testers.
   - For long-running beta in parallel with production: use a separate beta item.
-  - For production: decide public vs unlisted.
+  - Production distribution stays deferred until beta is stable.
 
 - [x] Add channel-specific build support.
   - `beta` builds point at the beta backend URL.
-  - `production` builds point at the production backend URL.
+  - `production` build wiring exists, but production values are postponed.
   - Artifact names include channel, manifest version, and git SHA.
 
 - [x] Add extension package workflow.
@@ -209,14 +222,19 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 - [ ] `just check` passes locally and in GitHub Actions.
 - [x] Backend Docker image runs locally.
 - [x] Caddy reverse proxy handles HTTP and WebSocket traffic.
+- [x] Beta VPS is provisioned.
+- [x] Docker is installed on the beta VPS.
+- [x] Cloudflare DNS points the beta backend domain to the VPS.
+- [x] GitHub Actions `beta` environment inputs are configured.
 - [ ] Beta backend is deployed from GitHub Actions.
 - [ ] Beta extension ZIP is built by GitHub Actions.
+- [x] Beta Chrome Web Store submission is pending review.
 - [ ] Beta Chrome Web Store item is private and limited to trusted testers.
 - [ ] Create/join/update/leave room flow passes through the public beta URL.
 - [x] YouTube, Bilibili, and basic HTML video smoke tests pass.
 - [ ] Privacy and tester docs are published or linked from the store listing.
 
-## Verification Before Production
+## Deferred Production
 
 - [ ] Production backend is deployed from a tagged image.
 - [ ] Production extension build uses the production backend URL.
@@ -224,6 +242,9 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 - [ ] Production release checklist is complete.
 - [x] Rollback path is tested for backend and extension package.
 - [x] Monitoring/log review process is documented.
+
+Production work resumes only after beta backend deployment, Chrome Web Store
+beta approval, and public beta smoke tests pass.
 
 ## References
 

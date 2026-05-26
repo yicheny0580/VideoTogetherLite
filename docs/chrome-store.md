@@ -4,7 +4,7 @@
 
 Selected release strategy:
 
-- Alpha and beta use one private Chrome Web Store item limited to trusted testers.
+- Beta uses one private Chrome Web Store item limited to trusted testers.
 - A separate beta item is only needed if beta must run for a long time in parallel with production.
 - Production starts as an unlisted item for the first public release window, then can move to public distribution after the support and review process is stable.
 

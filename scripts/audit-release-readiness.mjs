@@ -15,11 +15,9 @@ const requiredWorkflowFiles = [
 const requiredEnvironmentInputs = [
   "BACKEND_PUBLIC_URL",
   "CADDY_EMAIL",
-  "CWS_CLIENT_ID",
-  "CWS_CLIENT_SECRET",
   "CWS_EXTENSION_ID",
   "CWS_PUBLISHER_ID",
-  "CWS_REFRESH_TOKEN",
+  "CWS_SERVICE_ACCOUNT_JSON",
   "VPS_HOST",
   "VPS_SSH_KEY",
   "VPS_USER"

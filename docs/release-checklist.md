@@ -1,6 +1,6 @@
 # Release Checklist
 
-Use this file for beta and production releases. The backend URL, Chrome Web Store item IDs, and OAuth credentials are environment-specific values.
+Use this file for beta and production releases. The backend URL, Chrome Web Store item IDs, and Chrome Web Store service-account credentials are environment-specific values.
 
 ## Workflow Runner
 
