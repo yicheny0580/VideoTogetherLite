@@ -12,22 +12,22 @@ const messages: Record<Language, LocaleMessages> = {
 };
 
 export const popupMessages: Record<Language, {
-  disabled: string;
-  enabled: string;
+  pageErrorTitle: string;
   pageUnavailable: string;
-  refreshAfterChange: string;
+  pageUnavailableTitle: string;
+  readyStatus: string;
 }> = {
   "en-us": {
-    disabled: "Disabled",
-    enabled: "Enabled",
-    pageUnavailable: "Open a page with VideoTogether Lite enabled to control the room.",
-    refreshAfterChange: "Please refresh the page after change"
+    pageErrorTitle: "Connection issue",
+    pageUnavailable: "Open a supported video page to control a room.",
+    pageUnavailableTitle: "Page unavailable",
+    readyStatus: "Ready"
   },
   "zh-cn": {
-    disabled: "停用",
-    enabled: "启用",
-    pageUnavailable: "打开已启用 VideoTogether Lite 的网页后即可控制房间。",
-    refreshAfterChange: "启用或禁用后请刷新网页生效"
+    pageErrorTitle: "连接异常",
+    pageUnavailable: "打开支持的视频网页后即可控制房间。",
+    pageUnavailableTitle: "页面不可用",
+    readyStatus: "就绪"
   }
 };
 

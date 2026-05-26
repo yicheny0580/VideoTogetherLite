@@ -1,6 +1,7 @@
 @import "tailwindcss";
 
 body {
+  background: transparent;
   margin: 0;
   min-width: 360px;
 }
@@ -9,53 +10,97 @@ body {
   min-width: 360px;
 }
 
+.vtl-popup {
+  @apply w-[360px] overflow-hidden bg-neutral-100 text-neutral-950;
+}
+
+.vtl-header {
+  @apply border-b border-neutral-200 bg-white px-4 py-3;
+}
+
+.vtl-app-icon {
+  @apply flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-cyan-50 ring-1 ring-cyan-100;
+}
+
 .vtl-body {
-  @apply grid gap-3 overflow-auto p-4;
+  @apply grid gap-3 overflow-auto bg-neutral-100 p-3;
   max-height: 560px;
 }
 
+.vtl-alert {
+  @apply grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2 rounded-lg border px-3 py-2.5 text-xs leading-5;
+}
+
+.vtl-alert-icon {
+  @apply mt-0.5 h-4 w-4 shrink-0;
+}
+
+.vtl-alert-info {
+  @apply border-sky-200 bg-sky-50 text-sky-900;
+}
+
+.vtl-alert-success {
+  @apply border-emerald-200 bg-emerald-50 text-emerald-900;
+}
+
+.vtl-alert-warning {
+  @apply border-amber-200 bg-amber-50 text-amber-900;
+}
+
+.vtl-alert-danger {
+  @apply border-rose-200 bg-rose-50 text-rose-900;
+}
+
 .vtl-field {
-  @apply grid gap-1 text-xs font-medium text-neutral-600;
+  @apply grid gap-1.5 text-xs font-medium text-neutral-600;
+}
+
+.vtl-field-label {
+  @apply inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-600;
 }
 
 .vtl-input {
-  @apply h-9 w-full rounded-md border border-neutral-300 bg-white px-2 text-sm font-normal text-neutral-950 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100;
+  @apply h-9 w-full rounded-lg border border-neutral-300 bg-white px-2.5 text-sm font-normal text-neutral-950 outline-none transition placeholder:text-neutral-400 hover:border-neutral-400 focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100;
 }
 
 .vtl-textarea {
-  @apply h-16 w-full resize-none rounded-md border border-neutral-300 bg-white px-2 py-2 text-sm font-normal text-neutral-950 outline-none focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100;
+  @apply h-16 w-full resize-none rounded-lg border border-neutral-300 bg-white px-2.5 py-2 text-sm font-normal text-neutral-950 outline-none transition placeholder:text-neutral-400 hover:border-neutral-400 focus:border-cyan-600 focus:ring-2 focus:ring-cyan-100;
+}
+
+.vtl-btn-icon {
+  @apply h-4 w-4 shrink-0;
 }
 
 .vtl-btn-primary {
-  @apply h-10 rounded-md border border-cyan-700 bg-cyan-700 px-3 text-sm font-semibold text-white hover:bg-cyan-800;
+  @apply inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-cyan-700 bg-cyan-700 px-3 text-sm font-semibold text-white shadow-sm transition hover:border-cyan-800 hover:bg-cyan-800 active:border-cyan-900 active:bg-cyan-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-100 disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 .vtl-btn-secondary {
-  @apply h-10 rounded-md border border-neutral-300 bg-white px-3 text-sm font-semibold text-neutral-900 hover:border-neutral-400 hover:bg-neutral-50;
+  @apply inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-3 text-sm font-semibold text-neutral-900 shadow-sm transition hover:border-neutral-400 hover:bg-neutral-50 active:border-neutral-500 active:bg-neutral-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-100 disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 .vtl-btn-danger {
-  @apply h-10 flex-1 rounded-md border border-rose-600 bg-rose-600 px-3 text-sm font-semibold text-white hover:bg-rose-700;
+  @apply inline-flex h-10 items-center justify-center gap-1.5 rounded-lg border border-rose-600 bg-rose-600 px-3 text-sm font-semibold text-white shadow-sm transition hover:border-rose-700 hover:bg-rose-700 active:border-rose-800 active:bg-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-100 disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 .vtl-btn-compact,
 .vtl-btn-compact-active {
-  @apply h-8 whitespace-nowrap rounded-md border px-2 text-xs font-semibold;
+  @apply inline-flex h-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 text-xs font-semibold shadow-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-100 disabled:cursor-not-allowed disabled:opacity-50;
 }
 
 .vtl-btn-compact {
-  @apply border-neutral-300 bg-white text-neutral-900 hover:border-neutral-400 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50;
+  @apply border-neutral-300 bg-white text-neutral-900 hover:border-neutral-400 hover:bg-neutral-50 active:border-neutral-500 active:bg-neutral-100;
 }
 
 .vtl-btn-compact-active {
-  @apply border-emerald-700 bg-emerald-700 text-white hover:bg-emerald-800;
+  @apply border-emerald-700 bg-emerald-700 text-white hover:border-emerald-800 hover:bg-emerald-800 active:border-emerald-900 active:bg-emerald-900;
 }
 
 .vtl-room-strip,
 .vtl-focused-row,
 .vtl-focus-empty,
 .vtl-participant-video {
-  @apply grid rounded-lg border border-neutral-200 bg-neutral-50 p-3;
+  @apply grid rounded-lg border border-neutral-200 bg-white p-3 shadow-sm transition;
 }
 
 .vtl-room-strip,
@@ -68,10 +113,20 @@ body {
   @apply grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-sm text-neutral-600;
 }
 
+.vtl-focused-row:hover,
+.vtl-focus-empty:hover,
+.vtl-participant-video:hover {
+  @apply border-neutral-300 bg-neutral-50;
+}
+
 .vtl-section-title {
-  @apply text-xs font-semibold text-neutral-500;
+  @apply inline-flex items-center gap-1.5 text-xs font-semibold uppercase text-neutral-500;
+}
+
+.vtl-count-badge {
+  @apply inline-flex h-8 items-center gap-1 rounded-lg border border-neutral-200 bg-neutral-50 px-2 text-xs font-semibold text-neutral-600;
 }
 
 .vtl-empty-text {
-  @apply rounded-md border border-dashed border-neutral-300 p-3 text-sm text-neutral-500;
+  @apply inline-flex items-center gap-2 rounded-lg border border-dashed border-neutral-300 bg-white p-3 text-sm text-neutral-500;
 }

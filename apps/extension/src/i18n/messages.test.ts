@@ -12,8 +12,8 @@ describe("extension messages", () => {
     expect(getMessages("fr-FR").join_room_button).toBe("Join room");
   });
 
-  it("keeps popup enable copy localized", () => {
-    expect(popupMessages["en-us"]!.enabled).toBe("Enabled");
-    expect(popupMessages["zh-cn"]!.disabled).toBe("停用");
+  it("keeps popup state copy localized", () => {
+    expect(popupMessages["en-us"]!.pageUnavailableTitle).toBe("Page unavailable");
+    expect(popupMessages["zh-cn"]!.pageErrorTitle).toBe("连接异常");
   });
 });

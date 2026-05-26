@@ -5,17 +5,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PanelCommand } from "../bridge/panelBridge";
 import type { PanelState } from "../page/app/panelState";
 import { PopupApp } from "./PopupApp";
-import { getValue } from "./storage";
 
 const mocks = vi.hoisted(() => ({
   getValue: vi.fn(),
-  sendPanelCommand: vi.fn(),
-  setValue: vi.fn()
+  sendPanelCommand: vi.fn()
 }));
 
 vi.mock("./storage", () => ({
-  getValue: mocks.getValue,
-  setValue: mocks.setValue
+  getValue: mocks.getValue
 }));
 
 vi.mock("./activeTabBridge", () => ({
@@ -62,7 +59,7 @@ describe("PopupApp", () => {
       if (key === "DisplayLanguage") {
         return "en-us";
       }
-      return true;
+      return undefined;
     });
     mocks.sendPanelCommand.mockResolvedValue({
       id: "state",
@@ -70,32 +67,62 @@ describe("PopupApp", () => {
       source: "VideoTogetherLiteContent",
       state: roomState()
     });
-    mocks.setValue.mockResolvedValue(undefined);
   });
 
-  it("renders persisted disabled state", async () => {
-    vi.mocked(getValue).mockImplementation(async (key: string) => {
-      if (key === "videoTogetherLiteEnabled") {
-        return false;
-      }
-      if (key === "DisplayLanguage") {
-        return "en-us";
-      }
-      return undefined;
+  it("renders unavailable page errors", async () => {
+    mocks.sendPanelCommand.mockResolvedValue({
+      error: "No active web page found",
+      id: "state",
+      ok: false,
+      source: "VideoTogetherLiteContent"
     });
 
     render(<PopupApp />);
 
-    expect(await screen.findByText("Disabled")).toBeTruthy();
-    expect(screen.getByRole("checkbox")).not.toBeChecked();
+    expect(await screen.findByText("Page unavailable")).toBeVisible();
+    expect(screen.getByText("Open a supported video page to control a room.")).toBeVisible();
+    expect(screen.getByText("Connection issue")).toBeVisible();
+    expect(screen.getByText("No active web page found")).toBeVisible();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
   });
 
   it("renders room controls from the active tab", async () => {
     render(<PopupApp />);
 
-    expect(await screen.findByText("ROOM")).toBeVisible();
+    expect(await screen.findByText("ROOM", { selector: "#videoTogetherLiteRoomCodeText" })).toBeVisible();
     expect(screen.getByRole("button", { name: "Stop follow" })).toBeVisible();
     expect(screen.getByText("Shared")).toBeVisible();
+    expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
+  });
+
+  it("renders danger status as an alert", async () => {
+    mocks.sendPanelCommand.mockResolvedValue({
+      id: "state",
+      ok: true,
+      source: "VideoTogetherLiteContent",
+      state: roomState({
+        statusText: "Wrong invite code",
+        statusTone: "danger"
+      })
+    });
+
+    render(<PopupApp />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("Wrong invite code");
+  });
+
+  it("does not render an empty status alert", async () => {
+    mocks.sendPanelCommand.mockResolvedValue({
+      id: "state",
+      ok: true,
+      source: "VideoTogetherLiteContent",
+      state: roomState({ statusText: "" })
+    });
+
+    render(<PopupApp />);
+
+    expect(await screen.findByText("ROOM", { selector: "#videoTogetherLiteRoomCodeText" })).toBeVisible();
+    expect(document.querySelector("#videoTogetherLiteStatusText")).not.toBeInTheDocument();
   });
 
   it("sends stop follow without leaving the room", async () => {
@@ -122,7 +149,33 @@ describe("PopupApp", () => {
     await waitFor(() => {
       expect(mocks.sendPanelCommand).toHaveBeenCalledWith({ type: "stopFollow" });
     });
-    expect(await screen.findByText("ROOM")).toBeVisible();
+    expect(await screen.findByText("ROOM", { selector: "#videoTogetherLiteRoomCodeText" })).toBeVisible();
     expect(await screen.findByRole("button", { name: "Follow" })).toBeVisible();
+  });
+
+  it("renders command errors while preserving room controls", async () => {
+    mocks.sendPanelCommand.mockImplementation(async (command: PanelCommand) => {
+      if (command.type === "stopFollow") {
+        return {
+          error: "VideoTogether Lite is not ready on this page",
+          id: "state",
+          ok: false,
+          source: "VideoTogetherLiteContent"
+        };
+      }
+      return {
+        id: "state",
+        ok: true,
+        source: "VideoTogetherLiteContent",
+        state: roomState()
+      };
+    });
+
+    render(<PopupApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Stop follow" }));
+
+    expect(await screen.findByText("Connection issue")).toBeVisible();
+    expect(screen.getByText("VideoTogether Lite is not ready on this page")).toBeVisible();
+    expect(screen.getByText("ROOM", { selector: "#videoTogetherLiteRoomCodeText" })).toBeVisible();
   });
 });

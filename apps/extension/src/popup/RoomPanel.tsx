@@ -1,9 +1,28 @@
+import type { Language } from "@videotogetherlite/shared";
+import {
+  CircleAlert,
+  CircleCheck,
+  CircleQuestionMark,
+  Clipboard,
+  Copy,
+  DoorOpen,
+  Info,
+  LogIn,
+  Plus,
+  Search,
+  TriangleAlert,
+  User,
+  Users,
+  Video,
+  X,
+  type LucideIcon
+} from "lucide-react";
 import { useEffect, useState, type ReactElement } from "react";
 
 import { helpLinks, type LocaleMessages } from "../i18n/messages";
-import type { Language } from "@videotogetherlite/shared";
-import type { PanelState, ParticipantPanelState } from "../page/app/panelState";
+import type { PanelState, StatusTone } from "../page/app/panelState";
 import { getProgressText } from "./format";
+import { SharedVideos } from "./SharedVideos";
 
 interface RoomPanelProps {
   language: Language;
@@ -17,13 +36,21 @@ interface RoomPanelProps {
   onNicknameChange: (nickname: string) => void;
   onPickVideo: () => void;
   onStopFollow: () => void;
+  pageError: string;
+  pageErrorTitle: string;
   state: PanelState;
 }
 
-const statusToneClass = {
-  danger: "text-rose-600",
-  default: "text-neutral-600",
-  success: "text-emerald-600"
+const statusToneClass: Record<StatusTone, string> = {
+  danger: "vtl-alert-danger",
+  default: "vtl-alert-info",
+  success: "vtl-alert-success"
+};
+
+const statusIcon: Record<StatusTone, LucideIcon> = {
+  danger: CircleAlert,
+  default: Info,
+  success: CircleCheck
 };
 
 export function RoomPanel({
@@ -38,6 +65,8 @@ export function RoomPanel({
   onNicknameChange,
   onPickVideo,
   onStopFollow,
+  pageError,
+  pageErrorTitle,
   state
 }: RoomPanelProps): ReactElement {
   const [nickname, setNickname] = useState(state.nickname);
@@ -59,18 +88,36 @@ export function RoomPanel({
   };
 
   const commitNickname = () => onNicknameChange(nickname);
+  const StatusIcon = statusIcon[state.statusTone];
+  const statusText = state.statusText.trim();
 
   return (
     <div className="vtl-body">
-      <div
-        className={`min-h-5 truncate text-xs ${statusToneClass[state.statusTone]}`}
-        id="videoTogetherLiteStatusText"
-      >
-        {state.statusText}
-      </div>
+      {statusText ? (
+        <div
+          className={`vtl-alert ${statusToneClass[state.statusTone]}`}
+          id="videoTogetherLiteStatusText"
+          role={state.statusTone === "danger" ? "alert" : "status"}
+        >
+          <StatusIcon aria-hidden="true" className="vtl-alert-icon" />
+          <span className="min-w-0 truncate font-medium">{statusText}</span>
+        </div>
+      ) : null}
+      {pageError ? (
+        <div className="vtl-alert vtl-alert-danger" role="alert">
+          <TriangleAlert aria-hidden="true" className="vtl-alert-icon" />
+          <div className="min-w-0">
+            <div className="font-semibold">{pageErrorTitle}</div>
+            <p className="mt-0.5 break-words text-xs leading-5">{pageError}</p>
+          </div>
+        </div>
+      ) : null}
 
       <label className="vtl-field">
-        <span>{messages.nickname_label}</span>
+        <span className="vtl-field-label">
+          <User aria-hidden="true" className="h-3.5 w-3.5" />
+          {messages.nickname_label}
+        </span>
         <input
           autoComplete="off"
           className="vtl-input"
@@ -131,17 +178,21 @@ function JoinControls({
   onJoin: (inviteCode: string, nickname: string) => void;
 }): ReactElement {
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-3">
       <button
         className="vtl-btn-primary"
         id="videoTogetherLiteCreateButton"
         onClick={() => onCreate(nickname)}
         type="button"
       >
+        <Plus aria-hidden="true" className="vtl-btn-icon" />
         {messages.create_room_button}
       </button>
       <label className="vtl-field">
-        <span>{messages.invite_code_label}</span>
+        <span className="vtl-field-label">
+          <Clipboard aria-hidden="true" className="h-3.5 w-3.5" />
+          {messages.invite_code_label}
+        </span>
         <textarea
           className="vtl-textarea"
           id="videoTogetherLiteInviteCodeInput"
@@ -156,6 +207,7 @@ function JoinControls({
         onClick={() => onJoin(inviteCode, nickname)}
         type="button"
       >
+        <LogIn aria-hidden="true" className="vtl-btn-icon" />
         {messages.join_room_button}
       </button>
     </div>
@@ -191,17 +243,21 @@ function RoomControls({
     <div className="grid gap-3">
       <div className="vtl-room-strip">
         <div className="min-w-0">
-          <div className="text-[11px] uppercase text-neutral-500">{messages.room_label}</div>
-          <div className="truncate text-sm font-semibold" id="videoTogetherLiteRoomCodeText">{state.roomCode}</div>
-          <div className="truncate text-[11px] text-neutral-500" id="videoTogetherLiteInviteCodeText">
+          <div className="vtl-section-title">{messages.room_label}</div>
+          <div className="truncate text-base font-semibold text-neutral-950" id="videoTogetherLiteRoomCodeText">
+            {state.roomCode}
+          </div>
+          <div className="mt-0.5 truncate text-xs text-neutral-500" id="videoTogetherLiteInviteCodeText">
             {state.inviteCode}
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span id="videoTogetherLiteParticipantCount" className="text-xs text-neutral-500">
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="vtl-count-badge" id="videoTogetherLiteParticipantCount">
+            <Users aria-hidden="true" className="h-3.5 w-3.5" />
             {state.participantCount}
           </span>
           <button className="vtl-btn-compact" disabled={state.inviteCode === ""} onClick={onCopyInvite} type="button">
+            <Copy aria-hidden="true" className="vtl-btn-icon" />
             {copied ? messages.copied_button : messages.copy_invite_button}
           </button>
         </div>
@@ -216,8 +272,9 @@ function RoomControls({
       />
       <SharedVideos messages={messages} onFollow={onFollow} onStopFollow={onStopFollow} state={state} />
 
-      <div className="flex gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <button className="vtl-btn-danger" id="videoTogetherLiteExitButton" onClick={onExit} type="button">
+          <DoorOpen aria-hidden="true" className="vtl-btn-icon" />
           {messages.exit_room_button}
         </button>
         <button
@@ -226,6 +283,7 @@ function RoomControls({
           onClick={() => window.open(helpLinks[language], "_blank")}
           type="button"
         >
+          <CircleQuestionMark aria-hidden="true" className="vtl-btn-icon" />
           {messages.help_room_button}
         </button>
       </div>
@@ -248,11 +306,15 @@ function SharedLocalVideo({
 }): ReactElement {
   return (
     <section className="grid gap-2">
-      <div className="vtl-section-title">{messages.video_to_share_title}</div>
+      <div className="vtl-section-title">
+        <Video aria-hidden="true" className="h-3.5 w-3.5" />
+        {messages.video_to_share_title}
+      </div>
       {state.pickingVideo ? (
         <div className="vtl-focus-empty">
           <span>{messages.pick_video_instruction}</span>
           <button className="vtl-btn-compact" onClick={onCancelVideoPicker} type="button">
+            <X aria-hidden="true" className="vtl-btn-icon" />
             {messages.cancel_button}
           </button>
         </div>
@@ -260,6 +322,7 @@ function SharedLocalVideo({
         <div className="vtl-focus-empty">
           <span>{messages.no_video_selected}</span>
           <button className="vtl-btn-compact" id="videoTogetherLitePickVideoButton" onClick={onPickVideo} type="button">
+            <Search aria-hidden="true" className="vtl-btn-icon" />
             {messages.pick_video_button}
           </button>
         </div>
@@ -274,83 +337,16 @@ function SharedLocalVideo({
           </div>
           <div className="flex shrink-0 flex-col gap-1">
             <button className="vtl-btn-compact" onClick={onPickVideo} type="button">
+              <Search aria-hidden="true" className="vtl-btn-icon" />
               {messages.change_button}
             </button>
             <button className="vtl-btn-compact" onClick={onClearFocusedVideo} type="button">
+              <X aria-hidden="true" className="vtl-btn-icon" />
               {messages.clear_button}
             </button>
           </div>
         </div>
       )}
     </section>
-  );
-}
-
-function SharedVideos({
-  messages,
-  onFollow,
-  onStopFollow,
-  state
-}: {
-  messages: LocaleMessages;
-  onFollow: (userId: string) => void;
-  onStopFollow: () => void;
-  state: PanelState;
-}): ReactElement {
-  const sharingParticipants = state.participants.filter((participant) => participant.sharing);
-  return (
-    <section className="grid gap-2">
-      <div className="vtl-section-title">{messages.shared_videos_title}</div>
-      <div className="grid max-h-36 gap-1.5 overflow-auto pr-1">
-        {sharingParticipants.length > 0 ? (
-          sharingParticipants.map((participant) => (
-            <ParticipantVideo
-              key={participant.userId}
-              messages={messages}
-              onFollow={onFollow}
-              onStopFollow={onStopFollow}
-              participant={participant}
-            />
-          ))
-        ) : (
-          <div className="vtl-empty-text">{messages.no_shared_videos}</div>
-        )}
-      </div>
-    </section>
-  );
-}
-
-function ParticipantVideo({
-  messages,
-  onFollow,
-  onStopFollow,
-  participant
-}: {
-  messages: LocaleMessages;
-  onFollow: (userId: string) => void;
-  onStopFollow: () => void;
-  participant: ParticipantPanelState;
-}): ReactElement {
-  return (
-    <div className="vtl-participant-video">
-      <div className="min-w-0">
-        <div className="truncate text-sm font-semibold">
-          {participant.nickname}{participant.isLocal ? ` ${messages.you_label}` : ""}
-        </div>
-        <div className="truncate text-xs text-neutral-500">{participant.title}</div>
-        <div className="truncate text-xs text-neutral-500">
-          {participant.urlHost} | {participant.paused ? messages.paused_label : messages.playing_label} | {getProgressText(participant.currentTime, participant.duration)}
-        </div>
-      </div>
-      {!participant.isLocal ? (
-        <button
-          className={participant.isFollowing ? "vtl-btn-compact-active" : "vtl-btn-compact"}
-          onClick={() => participant.isFollowing ? onStopFollow() : onFollow(participant.userId)}
-          type="button"
-        >
-          {participant.isFollowing ? messages.stop_follow_button : messages.follow_button}
-        </button>
-      ) : null}
-    </div>
   );
 }

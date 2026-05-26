@@ -16,10 +16,6 @@
       "matches": ["<all_urls>"]
     }
   ],
-  "background": {
-    "service_worker": "background.js",
-    "type": "module"
-  },
   "icons": {
     "64": "icon/videotogether-lite_64x64.png",
     "192": "icon/android-icon-192x192.png"

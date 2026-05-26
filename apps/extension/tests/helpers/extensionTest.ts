@@ -14,7 +14,6 @@ type OpenPopupForPage = (targetPage: Page) => Promise<Page>;
 
 interface ExtensionFixtures {
   extensionContext: BrowserContext;
-  extensionId: string;
   fixtureServer: FixtureServer;
   openExternal: OpenExternal;
   openFixture: OpenFixture;
@@ -42,10 +41,33 @@ const extensionLaunchArgs = [
   "--no-sandbox"
 ];
 
-async function getExtensionId(context: BrowserContext): Promise<string> {
-  const serviceWorker = context.serviceWorkers()[0]
-    ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
-  const extensionId = serviceWorker.url().split("/")[2];
+function extensionIdFromUrl(url: string): string | null {
+  if (!url.startsWith("chrome-extension://")) {
+    return null;
+  }
+  return new URL(url).host || null;
+}
+
+async function getExtensionId(context: BrowserContext, targetPage?: Page): Promise<string> {
+  if (targetPage) {
+    const injectedScriptId = await targetPage.evaluate(() => {
+      const script = Array.from(document.scripts).find((candidate) => (
+        candidate.src.startsWith("chrome-extension://") && candidate.src.includes("/page.js")
+      ));
+      return script?.src ?? null;
+    });
+    const injectedId = injectedScriptId ? extensionIdFromUrl(injectedScriptId) : null;
+    if (injectedId) {
+      return injectedId;
+    }
+  }
+
+  const serviceWorker = context.serviceWorkers().find((worker) => extensionIdFromUrl(worker.url()))
+    ?? await context.waitForEvent("serviceworker", {
+      predicate: (worker) => extensionIdFromUrl(worker.url()) !== null,
+      timeout: 15_000
+    });
+  const extensionId = extensionIdFromUrl(serviceWorker.url());
   if (!extensionId) {
     throw new Error(`Could not resolve extension ID from ${serviceWorker.url()}`);
   }
@@ -76,10 +98,6 @@ export const test = base.extend<ExtensionFixtures>({
       await context?.close().catch(() => undefined);
       await rm(userDataDir, { force: true, recursive: true });
     }
-  },
-
-  extensionId: async ({ extensionContext }, runFixture) => {
-    await runFixture(await getExtensionId(extensionContext));
   },
 
   fixtureServer: async ({ browserName: _browserName }, runFixture) => {
@@ -165,11 +183,14 @@ export const test = base.extend<ExtensionFixtures>({
     }
   },
 
-  openPopup: async ({ extensionContext, extensionId }, runFixture) => {
+  openPopup: async ({ openFixture }, runFixture) => {
     await runFixture(async () => {
-      const page = await extensionContext.newPage();
-      await page.goto(`chrome-extension://${extensionId}/popup.html`);
-      return page;
+      const targetPage = await openFixture("/host");
+      const extensionId = await getExtensionId(targetPage.context(), targetPage);
+      const popup = await targetPage.context().newPage();
+      await popup.goto(`chrome-extension://${extensionId}/popup.html`);
+      await expect(popup.locator("#videoTogetherLitePopup")).toBeVisible();
+      return popup;
     });
   },
 
@@ -177,10 +198,10 @@ export const test = base.extend<ExtensionFixtures>({
     await runFixture(async (targetPage) => {
       await targetPage.bringToFront();
       await waitForExtensionController(targetPage);
-      const extensionId = await getExtensionId(targetPage.context());
+      const extensionId = await getExtensionId(targetPage.context(), targetPage);
       const popup = await targetPage.context().newPage();
       await popup.goto(`chrome-extension://${extensionId}/popup.html`);
-      await expect(popup.locator("#videoTogetherLiteExtensionSwitch")).toBeVisible();
+      await expect(popup.locator("#videoTogetherLitePopup")).toBeVisible();
       return popup;
     });
   }

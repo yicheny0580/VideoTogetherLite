@@ -2,7 +2,6 @@ import { expect, test } from "./helpers/extensionTest";
 import {
   createButton,
   exitButton,
-  expectNoPanel,
   expectVideoState,
   fillInvite,
   fillNickname,
@@ -16,23 +15,13 @@ import {
   statusText
 } from "./helpers/panel";
 
-test("popup enable switch controls fixture injection", async ({ openFixture, openPopup }) => {
-  const popup = await openPopup();
-  const enabledSwitch = popup.locator("#videoTogetherLiteExtensionSwitch");
-  const switchControl = popup.locator("label").filter({ has: enabledSwitch });
-  await expect(enabledSwitch).toBeChecked();
+test("popup controls fixture page without an enable switch", async ({ openFixture, openPopupForPage }) => {
+  const page = await openFixture("/host");
+  const popup = await openPopupForPage(page);
 
-  await switchControl.click();
-  await expect(enabledSwitch).not.toBeChecked();
-  await expect(popup.getByText("Disabled")).toBeVisible();
-  const disabledPage = await openFixture("/host", { waitForPanel: false });
-  await expectNoPanel(disabledPage);
-
-  await switchControl.click();
-  await expect(enabledSwitch).toBeChecked();
-  await expect(popup.getByText("Enabled", { exact: true })).toBeVisible();
-  const enabledPage = await openFixture("/host");
-  await expectNoPanel(enabledPage);
+  await expect(popup.locator("#videoTogetherLiteExtensionSwitch")).toHaveCount(0);
+  await expect(createButton(popup)).toBeVisible();
+  await expect(statusText(popup)).toBeVisible();
 });
 
 test("creates a participant room and follows an explicitly focused video", async ({

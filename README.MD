@@ -50,7 +50,7 @@ The Chrome extension app lives in `apps/extension` and is built with Vite, TypeS
 
 - content script: injects the page app and loading state
 - page app: owns room sync orchestration and the floating panel
-- popup app: owns extension enable/disable settings
+- popup app: owns active-tab room controls
 - shared package: protocol, language, URL state, and time-sync helpers
 
 For local server testing:

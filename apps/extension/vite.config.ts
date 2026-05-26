@@ -18,7 +18,6 @@ export default defineConfig({
     outDir: "dist",
     rollupOptions: {
       input: {
-        background: resolve(root, "src/background/index.ts"),
         content: resolve(root, "src/content/index.ts"),
         page: resolve(root, "src/page/index.tsx"),
         popup: resolve(root, "popup.html")

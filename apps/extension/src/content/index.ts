@@ -67,10 +67,6 @@ function resolveLanguage(candidate: unknown): Language {
   return languages.find((language) => language.split("-")[0] === prefix) ?? "en-us";
 }
 
-function sendEnabledStatus(enabled: boolean): void {
-  chrome.runtime.sendMessage({ enabled, type: 4 }).catch(() => undefined);
-}
-
 function listenForProfileUpdates(): void {
   window.addEventListener("message", (event) => {
     if (event.source !== window) {
@@ -220,13 +216,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  const enabled = await getValue<boolean>("videoTogetherLiteEnabled");
-  if (enabled === false) {
-    sendEnabledStatus(false);
-    return;
-  }
-
-  sendEnabledStatus(true);
   const configuredLanguage = await getValue<string>("DisplayLanguage");
   const language = resolveLanguage(configuredLanguage ?? navigator.language);
   const userId = await getOrCreateUserId();

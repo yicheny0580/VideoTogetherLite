@@ -5,7 +5,7 @@ import { constants as fsConstants, readFileSync } from "node:fs";
 import { access, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const extensionDist = resolve(root, "apps/extension/dist");
@@ -13,7 +13,9 @@ const extensionManifest = resolve(extensionDist, "manifest.json");
 const fixtureVideoPath = resolve(root, "apps/extension/fixtures/sample-video.webm");
 const fixtureVideoPathname = "/fixture-video.webm";
 const fixtureVideo = readFileSync(fixtureVideoPath);
-const profileDir = resolve(root, ".playwright/videotogetherlite-dev-profile");
+const profileDir = process.env.VIDEOTOGETHER_LITE_DEV_PROFILE_DIR
+  || resolve(root, ".playwright/videotogetherlite-dev-profile");
+const serverBinary = resolve(process.env.TMPDIR || "/tmp", process.platform === "win32" ? "videotogetherlite-dev-server.exe" : "videotogetherlite-dev-server");
 const serviceHost = process.env.VITE_VIDEOTOGETHER_LITE_HOST || "http://127.0.0.1:5001";
 
 const runningChildren = new Set();
@@ -100,6 +102,11 @@ async function stopChild(child) {
   }
 }
 
+function buildServerBinary() {
+  const result = spawnSync(commandName("go"), ["build", "-o", serverBinary, "./apps/server"], { cwd: root, stdio: "inherit" });
+  if (result.status !== 0) throw new Error("Could not build dev server.");
+}
+
 function waitForSignal() {
   return new Promise((resolveSignal) => {
     process.once("SIGINT", () => resolveSignal({ kind: "signal", signal: "SIGINT" }));
@@ -143,22 +150,9 @@ function fixtureHtml() {
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>VideoTogether Lite local fixture</title>
     <style>
-      body {
-        background: #f7f8fa;
-        color: #1f2937;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        margin: 0;
-        padding: 32px;
-      }
-      main {
-        max-width: 760px;
-      }
-      video {
-        background: #111827;
-        display: block;
-        margin-top: 16px;
-        width: min(100%, 640px);
-      }
+      body { background: #f7f8fa; color: #1f2937; font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; margin: 0; padding: 32px; }
+      main { max-width: 760px; }
+      video { background: #111827; display: block; margin-top: 16px; width: min(100%, 640px); }
     </style>
   </head>
   <body>
@@ -246,6 +240,15 @@ async function startFixtureServer() {
   };
 }
 
+async function getExtensionIdFromFixture(page) {
+  await page.waitForFunction(() => Boolean(window.videoTogetherLiteExtension), undefined, { timeout: 30_000 });
+  const scriptUrl = await page.evaluate(() => Array.from(document.scripts).find((script) => (
+    script.src.startsWith("chrome-extension://") && script.src.includes("/page.js")
+  ))?.src);
+  const extensionId = scriptUrl ? new URL(scriptUrl).host : "";
+  if (extensionId) return extensionId;
+  throw new Error("Could not resolve extension ID from fixture page.");
+}
 async function launchBrowser(fixtureUrl) {
   let chromium;
   try {
@@ -261,10 +264,12 @@ async function launchBrowser(fixtureUrl) {
   try {
     context = await chromium.launchPersistentContext(profileDir, {
       args: [
+        "--start-maximized",
         `--disable-extensions-except=${extensionDist}`,
         `--load-extension=${extensionDist}`
       ],
-      headless: false
+      headless: false,
+      viewport: null
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -276,16 +281,14 @@ async function launchBrowser(fixtureUrl) {
     throw error;
   }
 
-  const serviceWorker = context.serviceWorkers()[0]
-    ?? await context.waitForEvent("serviceworker", { timeout: 15_000 });
-  const extensionId = serviceWorker.url().split("/")[2];
+  const fixture = await context.newPage();
+  await fixture.goto(fixtureUrl);
+  const extensionId = await getExtensionIdFromFixture(fixture);
   const popupUrl = `chrome-extension://${extensionId}/popup.html`;
 
   const popup = await context.newPage();
   await popup.goto(popupUrl);
-
-  const fixture = await context.newPage();
-  await fixture.goto(fixtureUrl);
+  await fixture.bringToFront();
 
   console.log(`[browser] popup: ${popupUrl}`);
   console.log(`[browser] fixture: ${fixtureUrl}`);
@@ -306,7 +309,8 @@ async function cleanup(context, fixture) {
 
 async function runWatch({ openBrowser }) {
   const watchStartedAt = Date.now() - 1_000;
-  const server = startChild("server", "go", ["run", "./apps/server", "debug"]);
+  buildServerBinary();
+  const server = startChild("server", serverBinary, ["debug"]);
   const watcher = startChild(
     "extension",
     "pnpm",
