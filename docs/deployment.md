@@ -190,4 +190,8 @@ Use required reviewers on the `production` environment. The deploy workflow has 
 
 ## Caddy Behavior
 
-Caddy terminates TLS and proxies plain HTTP to `server:8080`. WebSocket upgrades are handled by `reverse_proxy`. The Caddyfile uses `/healthz` as the active upstream health check.
+Caddy terminates TLS and proxies plain HTTP to `server:8080`. The beta
+deployment expects the backend hostname to be proxied through Cloudflare, so
+Caddy uses an internal origin certificate and Cloudflare presents the public
+edge certificate to browsers. WebSocket upgrades are handled by `reverse_proxy`.
+The Caddyfile uses `/healthz` as the active upstream health check.

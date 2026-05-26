@@ -4,6 +4,7 @@
 
 {$BACKEND_DOMAIN} {
 	encode zstd gzip
+	tls internal
 
 	reverse_proxy server:8080 {
 		health_uri /healthz
