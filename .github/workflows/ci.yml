@@ -29,8 +29,11 @@ jobs:
       - name: Install just
         run: cargo install just --locked
 
+      - name: Install pnpm
+        run: npm install -g pnpm@11.3.0
+
       - name: Install JS dependencies
-        run: npx pnpm@latest install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Run repo checks
         run: just check
