@@ -17,6 +17,10 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 - [x] Docker is installed on the beta VPS.
 - [x] Cloudflare DNS points the beta backend domain to the VPS.
 - [x] GitHub Actions `beta` environment inputs are configured.
+- [x] Beta backend is deployed through GitHub Actions.
+- [x] Public beta health and room/WebSocket smoke tests pass through
+  Cloudflare and Caddy.
+- [x] Cloudflare-proxied beta origin uses Caddy internal TLS on the VPS.
 - [x] Chrome Web Store beta submission has been sent for review.
 - [ ] Chrome Web Store beta review is approved.
 - [x] Production environment setup is postponed until beta is healthy.
@@ -226,11 +230,12 @@ VideoTogether Lite backend and Chrome extension. The target release path is:
 - [x] Docker is installed on the beta VPS.
 - [x] Cloudflare DNS points the beta backend domain to the VPS.
 - [x] GitHub Actions `beta` environment inputs are configured.
-- [ ] Beta backend is deployed from GitHub Actions.
+- [x] Beta backend is deployed from GitHub Actions.
+- [x] Public beta health check passes through Cloudflare and Caddy.
 - [ ] Beta extension ZIP is built by GitHub Actions.
 - [x] Beta Chrome Web Store submission is pending review.
 - [ ] Beta Chrome Web Store item is private and limited to trusted testers.
-- [ ] Create/join/update/leave room flow passes through the public beta URL.
+- [x] Create/join/update/leave room flow passes through the public beta URL.
 - [x] YouTube, Bilibili, and basic HTML video smoke tests pass.
 - [ ] Privacy and tester docs are published or linked from the store listing.
 
